@@ -1,0 +1,803 @@
+{
+  "NIST_678867": {
+    "feature_id": "743580093649369178",
+    "formula": "743580240311597508",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 1.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 3.731579518335569,
+          "intensity": 0.1427,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 1.8240191185567385,
+          "intensity": 0.0019,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 1.7993640093055574
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 0.5267362950467149
+        }
+      ],
+      "treeScore": 8.962170575527061,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678868": {
+    "feature_id": "743580094597281892",
+    "formula": "743580238080227764",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 1.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 4.100252129399911,
+          "intensity": 0.2293,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 2.0453158938543305,
+          "intensity": 0.0034999999999999996,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 2.1680366203698993
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 0.748033070344307
+        }
+      ],
+      "treeScore": 9.552139961888994,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678869": {
+    "feature_id": "743580095125764212",
+    "formula": "743580236545112490",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 1.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 4.477285683417005,
+          "intensity": 0.3379,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 2.2512297321520034,
+          "intensity": 0.0058,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 2.5450701743869937
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 0.9539469086419798
+        }
+      ],
+      "treeScore": 10.135087354203762,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678870": {
+    "feature_id": "743580095524223108",
+    "formula": "743580241787992527",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 1.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 5.130472645722726,
+          "intensity": 0.5409,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 2.5613268198278214,
+          "intensity": 0.012,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 3.198257136692715
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 1.2640439963177978
+        }
+      ],
+      "treeScore": 11.0983714041853,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678871": {
+    "feature_id": "743580097294219406",
+    "formula": "743580237849541036",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 1.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 6.156996067356565,
+          "intensity": 0.7904000000000001,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 2.8346648196488067,
+          "intensity": 0.0219,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 4.224780558326554
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 1.5373819961387831
+        }
+      ],
+      "treeScore": 12.398232825640125,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678872": {
+    "feature_id": "743580097961113758",
+    "formula": "743580239460153788",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.8256999999999999,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 3.0478478476844217,
+          "intensity": 0.034,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 1.7505650241743982
+        }
+      ],
+      "treeScore": 19.513855323507688,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678873": {
+    "feature_id": "743580098518956204",
+    "formula": "743580241779603917",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.5778,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 3.1516937281393496,
+          "intensity": 0.0417,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 1.854410904629326
+        }
+      ],
+      "treeScore": 19.617701203962614,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678874": {
+    "feature_id": "743580099152296127",
+    "formula": "743580237987953072",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.2633,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 3.357457276938211,
+          "intensity": 0.061200000000000004,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 2.0601744534281874
+        }
+      ],
+      "treeScore": 19.823464752761478,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678875": {
+    "feature_id": "743580100490279120",
+    "formula": "743580233500047778",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.0791,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 3.6685045297648173,
+          "intensity": 0.10339999999999999,
+          "mz": 58.0283
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 2.3712217062547944
+        }
+      ],
+      "treeScore": 20.134512005588082,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678876": {
+    "feature_id": "743580104265152732",
+    "formula": "743580236293454246",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.0219,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 3.908547387534215,
+          "intensity": 0.1478,
+          "mz": 58.0283
+        },
+        {
+          "fragmentId": 3,
+          "molecularFormula": "C2HNO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0003901040905347486,
+          "massDeviationPpm": -6.964565009984318,
+          "score": 2.268555471958149,
+          "intensity": 0.005600000000000001,
+          "mz": 56.0127
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 2.611264564024191
+        },
+        {
+          "sourceFragmentIdx": 1,
+          "targetFragmentIdx": 3,
+          "molecularFormula": "CH4",
+          "score": 2.535890912375856
+        }
+      ],
+      "treeScore": 22.910445775733333,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678877": {
+    "feature_id": "743580104680388844",
+    "formula": "743580241569888715",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.0054,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 4.137168543151583,
+          "intensity": 0.1998,
+          "mz": 58.0283
+        },
+        {
+          "fragmentId": 3,
+          "molecularFormula": "C2HNO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0003901040905347486,
+          "massDeviationPpm": -6.964565009984318,
+          "score": 2.7101777172543606,
+          "intensity": 0.015600000000000001,
+          "mz": 56.0127
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 2.8398857196415594
+        },
+        {
+          "sourceFragmentIdx": 1,
+          "targetFragmentIdx": 3,
+          "molecularFormula": "CH4",
+          "score": 2.9775131576720675
+        }
+      ],
+      "treeScore": 23.580689176646914,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678878": {
+    "feature_id": "743580104999155960",
+    "formula": "743580236268288420",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": 0.0,
+          "massDeviationPpm": 0.0,
+          "score": 6.636625789169921,
+          "intensity": 0.0,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004902320905415536,
+          "massDeviationPpm": -6.804630101112705,
+          "score": 13.059435537188511,
+          "intensity": 1.0,
+          "mz": 72.0439
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 4.426784060677141,
+          "intensity": 0.2776,
+          "mz": 58.0283
+        },
+        {
+          "fragmentId": 3,
+          "molecularFormula": "C2HNO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0003901040905347486,
+          "massDeviationPpm": -6.964565009984318,
+          "score": 3.084099191838058,
+          "intensity": 0.034300000000000004,
+          "mz": 56.0127
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.1272200281585
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 3.1295012371671174
+        },
+        {
+          "sourceFragmentIdx": 1,
+          "targetFragmentIdx": 3,
+          "molecularFormula": "CH4",
+          "score": 3.351434632255765
+        }
+      ],
+      "treeScore": 24.244781686751303,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678879": {
+    "feature_id": "743580105112402172",
+    "formula": "743580237979564462",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -1.3920905246322945e-06,
+          "massDeviationPpm": -0.013504089636105663,
+          "score": 6.636070271174789,
+          "intensity": 0.002,
+          "mz": 103.086588
+        },
+        {
+          "fragmentId": 1,
+          "molecularFormula": "C3H5NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0005902320905306624,
+          "massDeviationPpm": -8.19268404124522,
+          "score": 13.035000476469905,
+          "intensity": 1.0,
+          "mz": 72.0438
+        },
+        {
+          "fragmentId": 2,
+          "molecularFormula": "C2H3NO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004401680905345984,
+          "massDeviationPpm": -7.585403855267143,
+          "score": 4.95601098432332,
+          "intensity": 0.44,
+          "mz": 58.0283
+        },
+        {
+          "fragmentId": 3,
+          "molecularFormula": "C2HNO",
+          "adduct": "[M + H]+",
+          "massDeviationDa": -0.0004901040905380682,
+          "massDeviationPpm": -8.749890034350633,
+          "score": 3.6216821102385133,
+          "intensity": 0.0947,
+          "mz": 56.0126
+        }
+      ],
+      "losses": [
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 1,
+          "molecularFormula": "CH5N",
+          "score": 11.044303912566138
+        },
+        {
+          "sourceFragmentIdx": 0,
+          "targetFragmentIdx": 2,
+          "molecularFormula": "C2H7N",
+          "score": 3.658728160813297
+        },
+        {
+          "sourceFragmentIdx": 1,
+          "targetFragmentIdx": 3,
+          "molecularFormula": "CH4",
+          "score": 3.889017550662352
+        }
+      ],
+      "treeScore": 25.228119895216576,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  },
+  "NIST_678880": {
+    "feature_id": "743580105204676868",
+    "formula": "743580241792186833",
+    "frag_tree": {
+      "fragments": [
+        {
+          "fragmentId": 0,
+          "molecularFormula": "C4H10N2O",
+          "adduct": "[M + H]+",
+          "massDeviationDa": 0.0,
+          "massDeviationPpm": 0.0,
+          "score": 6.636625789169921,
+          "intensity": 0.0,
+          "mz": 103.086588
+        }
+      ],
+      "losses": [],
+      "treeScore": 6.636625789169921,
+      "molecularFormula": "C4H10N2O",
+      "adduct": "[M + H]+"
+    }
+  }
+}

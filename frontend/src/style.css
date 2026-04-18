@@ -1,0 +1,40 @@
+:root {
+  --top-nav-height: 100px;
+  font-family: 'Noto Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #303133;
+  background-color: #f5f7fa;
+  font-weight: 400;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-color: #f5f7fa;
+}
+
+a {
+  color: #409eff;
+}
+
+a:hover {
+  color: #66b1ff;
+}
+
+button,
+.el-button,
+.el-button:focus,
+.el-button:hover,
+.el-button:active,
+.el-button.is-plain,
+.el-button.is-plain:focus,
+.el-button.is-plain:hover,
+.el-button.is-plain:active {
+  color: #000 !important;
+}
+
+#app {
+  min-height: 100vh;
+}

@@ -1,0 +1,80 @@
+# =========================
+# Root-level runtime / platform folders
+# =========================
+/envs/
+/nodejs/
+
+# Archives and large packaged artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# =========================
+# Python cache / virtual env
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# =========================
+# Node / frontend artifacts
+# =========================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# =========================
+# IDE / OS temp files
+# =========================
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# =========================
+# Logs
+# =========================
+*.log
+nohup.out
+
+# =========================
+# Backend runtime data (do not upload)
+# =========================
+backend/users.db
+backend/temp/
+backend/temp1/
+backend/user_data/
+backend/smiles_image/
+
+# =========================
+# ML model / large binary files (do not upload)
+# =========================
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+*.safetensors
+*.h5
+*.pkl
+*.joblib
+*.npz
+*.npy
+
+# =========================
+# Optional local env files
+# =========================
+.env
+.env.*
+!.env.example

@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from pathlib import Path
 from threading import Lock
 
 import torch
@@ -12,7 +13,7 @@ from tqdm import tqdm
 import core.config as app_cfg
 from services.retrieve import MSDataset, collate_ms
 
-PROJ_ROOT = "/root/web/backend/services/model"
+PROJ_ROOT = str(Path(__file__).resolve().parent / "model")
 if PROJ_ROOT not in sys.path:
     sys.path.insert(0, PROJ_ROOT)
 
@@ -24,20 +25,8 @@ DEFAULT_ION_MODE = "pos"
 VALID_ION_MODES = ("pos", "neg")
 
 ADV_MODEL_WEIGHT_PATHS = {
-    "pos": str(
-        getattr(
-            app_cfg,
-            "retrieve_advanced_model_weight_path_pos",
-            "/home/nfs06/wuzt/wzt/outputs_finetune/512_triple_finetune_mist_xatten_morgan3_torsion_true/ft_e8_loss1.0037.pth",
-        )
-    ),
-    "neg": str(
-        getattr(
-            app_cfg,
-            "retrieve_advanced_model_weight_path_neg",
-            "/home/nfs06/wuzt/wzt/outputs_neg_finetune/neg_mist_finetune/ft_e5_loss1.0547.pth",
-        )
-    ),
+    "pos": str(app_cfg.retrieve_advanced_model_weight_path_pos),
+    "neg": str(app_cfg.retrieve_advanced_model_weight_path_neg),
 }
 
 BATCH_SIZE = int(getattr(app_cfg, "retrieve_batch_size", 256))
@@ -264,9 +253,9 @@ def _load_candidate_map(statas_data: dict) -> tuple[dict[str, list[str]], dict[s
 
 def main(
     ion_mode: str = DEFAULT_ION_MODE,
-    statas_json_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_xxx/statas_advanced.json",
-    fragtrees_json_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_xxx/valid_pairs_fragtrees.json",
-    spectra_mgf_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_xxx/valid_pairs_spectra.mgf",
+    statas_json_path: str = str(app_cfg.statas_path),
+    fragtrees_json_path: str = str(app_cfg.valid_pairs_fragtrees_path),
+    spectra_mgf_path: str = str(app_cfg.valid_pairs_spectra_path),
 ):
     if not os.path.exists(statas_json_path):
         raise RuntimeError("statas.json不存在")

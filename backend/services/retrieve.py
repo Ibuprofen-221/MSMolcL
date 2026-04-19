@@ -18,7 +18,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-BACKEND_ROOT = "/root/web/backend"
+BACKEND_ROOT = str(Path(__file__).resolve().parents[1])
 if BACKEND_ROOT not in sys.path:
     sys.path.insert(0, BACKEND_ROOT)
 
@@ -33,10 +33,12 @@ from core.config import (
     retrieve_seed,
     retrieve_shared_smiles_txt_path,
     statas_path,
+    valid_pairs_fragtrees_path,
+    valid_pairs_spectra_path,
 )
 import core.config as app_cfg
 
-PROJ_ROOT = "/root/web/backend/services/model"
+PROJ_ROOT = str(Path(__file__).resolve().parent / "model")
 if PROJ_ROOT not in sys.path:
     sys.path.insert(0, PROJ_ROOT)  # 插入到sys.path最前面，优先查找
 # 项目内导入
@@ -57,7 +59,7 @@ STATS_JSON_PATH = str(statas_path)
 CANDIDATE_POOL_MODE = "pubchem"
 PUBCHEM_PPM = retrieve_pubchem_ppm
 PUBCHEM_PARQUET_PATH = str(retrieve_pubchem_parquet_path)
-DATABASE_ROOT = str(getattr(app_cfg, "retrieve_database_root", "/root/autodl-tmp/database"))
+DATABASE_ROOT = str(app_cfg.retrieve_database_root)
 SHARED_SMILES_TXT_PATH = str(retrieve_shared_smiles_txt_path)
 
 MODEL_WEIGHT_PATHS = {k: str(v) for k, v in retrieve_model_weight_paths.items()}
@@ -794,9 +796,9 @@ def main(
     ppm_range: float = PUBCHEM_PPM,
     custom_smiles_list: list[str] | None = None,
     ion_mode: str = DEFAULT_ION_MODE,
-    statas_json_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_6a049fba4fcc4523b9e97f2944ed821f/statas.json",
-    fragtrees_json_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_6a049fba4fcc4523b9e97f2944ed821f/valid_pairs_fragtrees.json",
-    spectra_mgf_path: str = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/temp/task_6a049fba4fcc4523b9e97f2944ed821f/valid_pairs_spectra.mgf",
+    statas_json_path: str = str(statas_path),
+    fragtrees_json_path: str = str(valid_pairs_fragtrees_path),
+    spectra_mgf_path: str = str(valid_pairs_spectra_path),
     pubchem_parquet_path: str = PUBCHEM_PARQUET_PATH,
     shared_smiles_txt_path: str = SHARED_SMILES_TXT_PATH,
     databases: list[str] | None = None,

@@ -1,31 +1,35 @@
 # web 项目代码开源与复现说明
 
 本仓库仅包含**源码与必要配置**，不包含大型模型文件、数据库文件与运行时生成数据。
+注意，为了运行后端，需要在配置cuda的GPU服务器上运行后端代码
 
-## 1. 仓库内容说明
+## 1. 内容说明
 
-- 已保留：前端源码、后端源码、依赖配置（`frontend/package.json`、`backend/requirements.txt`）
-- 已忽略：模型权重、数据库、日志、缓存、临时目录、打包产物（见 `.gitignore`）
+- 前端源码: frontend
+- 后端源码：backend
+- 依赖配置: frontend/package.json、backend/requirements.txt
 
 ## 2. 环境要求
 
-- Python：建议 3.10+
-- Node.js：建议 18+
-- npm：建议 9+
+- Python：3.10
+- Node.js：18.08.2
+- npm：9.8.1
+- 建议使用vscode IDE运行代码，这样能够直接映射前后端端口到本地
 
-## 3. 后端启动（FastAPI）
+## 3. 创建并配置虚拟环境
+conda create -n env_name python==3.10
+conda activate env_name
+pip install -r requirements.txt
+
+## 4. 后端启动（FastAPI）
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+conda activate env_name
+python main.py 
 ```
+后端默认在6008端口启动
 
-> 如果你的环境是 Conda，也可以改用 Conda 环境安装 `requirements.txt`。
-
-## 4. 前端启动（Vite + Vue）
+## 5. 前端启动（Vite + Vue）
 
 ```bash
 cd frontend
@@ -33,43 +37,29 @@ npm install
 npm run dev
 ```
 
-默认前端会在 `6006` 端口启动（以 `package.json` 的脚本为准）。
+默认前端会在 `6006` 端口启动
+如果使用vscode的转发端口功能，便能直接在浏览器中访问本地6008端口访问前端：http:127.0.0.1:6008
+## 6. 模型与数据文件准备
+本代码文件夹不提供较大的模型 / 数据库文件
+需要在models_and_dbs.tar.gz中额外进行下载。注意：其中pubchem的数据库文件过大(20G)，请准备好足够的磁盘空间。
+为了保持源代码的兼容性，建议您复制其他任意一个数据库文件(parquet)，并改名为Pubchem.parquet
 
-## 5. 模型与数据文件准备（关键）
+并将上述文件统一放在以下位置：
 
-由于仓库不上传大文件，请在本地手动准备并放入对应位置：
-
-- 模型权重文件（如 `*.pt`、`*.pth`、`*.onnx`）
-- 数据库文件（如 `users.db`，如需历史数据）
-- 运行时数据目录（如 `backend/user_data/`）
-
-请将这些文件通过网盘/对象存储/内部文件服务器分发，并在本地按项目约定路径放置。
-
-## 6. 推荐开源协作习惯
-
-- 新增依赖时同步更新：
-  - Python：`backend/requirements.txt`
-  - Node：`frontend/package.json`
-- 提交前先检查是否有大文件误加入：
-
-```bash
-git status
-git add .
-git status
-```
-
-如果发现不该提交的文件，先 `git restore --staged <文件>` 再检查 `.gitignore`。
-
-## 7. 目录建议
-
-```text
-web/
-├── backend/
-│   ├── requirements.txt
-│   └── ...
-├── frontend/
-│   ├── package.json
-│   └── ...
-├── .gitignore
-└── README.md
-```
+在当前文件夹的同级文件夹中创建autodl-tmp文件夹，并将全部文件放在该文件夹下
+路径：
+--autodl/database
+          ---pubchem
+          ---ymdb
+          ---...
+        /...pth
+        /...pth
+--web/
+  ├── backend/
+  │   ├── requirements.txt
+  │   └── ...
+  ├── frontend/
+  │   ├── package.json
+  │   └── ...
+  ├── .gitignore
+  └── README.md

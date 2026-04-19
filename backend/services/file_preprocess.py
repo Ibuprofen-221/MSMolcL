@@ -14,11 +14,13 @@ MAX_MZ = 5000.0  # 保留的最大m/z值
 INTENSITY_DECIMALS = 2  # 归百化后强度保留小数位数
 
 # 文件输出路径配置（按要求设置）
-SPECTRUM_OUTPUT_DIR = "/root/web/backend/temp"  # 处理后的谱图文件保存路径
-FRAGTREE_OUTPUT_DIR = "root/web/backend/temp"  # 处理后的碎裂树文件保存路径
-STATS_OUTPUT_PATH = "/root/web/backend/temp/statas.json"  # 统计信息输出路径
-VALID_PAIRS_MGF = "/root/web/backend/temp/valid_pairs_spectra.mgf"  # 有效对谱图文件
-VALID_PAIRS_JSON = "/root/web/backend/temp/valid_pairs_fragtrees.json"  # 有效对碎裂树文件
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+_DEFAULT_TEMP_DIR = _BACKEND_DIR / "temp"
+SPECTRUM_OUTPUT_DIR = str(_DEFAULT_TEMP_DIR)  # 处理后的谱图文件保存路径
+FRAGTREE_OUTPUT_DIR = str(_DEFAULT_TEMP_DIR)  # 处理后的碎裂树文件保存路径
+STATS_OUTPUT_PATH = str(_DEFAULT_TEMP_DIR / "statas.json")  # 统计信息输出路径
+VALID_PAIRS_MGF = str(_DEFAULT_TEMP_DIR / "valid_pairs_spectra.mgf")  # 有效对谱图文件
+VALID_PAIRS_JSON = str(_DEFAULT_TEMP_DIR / "valid_pairs_fragtrees.json")  # 有效对碎裂树文件
 
 def set_output_base(base_dir: str | Path) -> None:
     """基于指定目录重置所有输出路径，确保任务隔离。"""
@@ -37,8 +39,8 @@ FRAGTREE_VALID_KEY = "frag_tree"  # 判断碎裂树有效的关键字段
 ROOT_FRAGMENT_ID = 0  # 碎裂树根节点的fragmentId值
 
 # 示例输入文件路径（按要求设置）
-EXAMPLE_SPECTRUM_FILE = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/testdata/C9H18N2O2_4.mgf"  # 输入谱图文件
-EXAMPLE_FRAGTREE_FILE = "/home/nfs05/wuzt/AI+/ZZZ_grn/web/backend/testdata/C9H18N2O2_4.json"  # 输入碎裂树文件
+EXAMPLE_SPECTRUM_FILE = str(_BACKEND_DIR / "testdata" / "C9H18N2O2_4.mgf")  # 输入谱图文件
+EXAMPLE_FRAGTREE_FILE = str(_BACKEND_DIR / "testdata" / "C9H18N2O2_4.json")  # 输入碎裂树文件
 
 
 class SpectrumNormalizer:

@@ -13,16 +13,21 @@ backend_host = "0.0.0.0"
 backend_port = 6008
 backend_reload = False
 
+# 目录基准（固定约定：web 与 autodl-tmp 同级）
+backend_dir = Path(__file__).resolve().parents[1]
+web_dir = backend_dir.parent
+autodl_tmp_dir = web_dir.parent / "autodl-tmp"
+
 # 上传目录（临时文件目录）
-temp_dir = Path("/root/web/backend/temp")
+temp_dir = backend_dir / "temp"
 
 # 用户数据根目录（多用户隔离目录）
-user_data_root = Path("/root/web/backend/user_data")
+user_data_root = backend_dir / "user_data"
 # 兼容旧变量名（建议新代码使用 user_data_root）
 user_data_dir = user_data_root
 
 # 认证与数据库配置
-database_url = os.getenv("DATABASE_URL", "sqlite:////root/web/backend/users.db")
+database_url = os.getenv("DATABASE_URL", f"sqlite:///{backend_dir / 'users.db'}")
 jwt_secret_key = os.getenv("JWT_SECRET_KEY", "please-change-this-secret")
 jwt_algorithm = "HS256"
 jwt_access_token_expire_minutes = 60 * 24
@@ -37,7 +42,7 @@ task_storage_roots = {
 history_records_path = user_data_dir / "history_records.json"
 
 # smiles图片缓存目录
-smiles_image_dir = Path("/root/web/backend/smiles_image")
+smiles_image_dir = backend_dir / "smiles_image"
 
 # 允许上传的后缀（小写）
 allowed_mgf_extensions = {"mgf", "txt"}
@@ -50,26 +55,26 @@ statas_path = temp_dir / "statas.json"
 
 # 说明文档配置
 # 源文档（可手动修改）
-docs_source_path = Path("/root/web/backend/services/文档说明.md")
+docs_source_path = backend_dir / "services" / "文档说明.md"
 # 解析后的结构化结果缓存（保存到 temp 目录）
 docs_structured_cache_path = temp_dir / "docs_content.json"
 
 # 检索模型与候选库路径配置
-retrieve_model_weight_path_pos = Path("/root/autodl-tmp/model_epoch-36_vloss-0.1429.pth")
-retrieve_model_weight_path_neg = Path("/root/autodl-tmp/model_epoch-43_vloss-0.2149.pth")
+retrieve_model_weight_path_pos = autodl_tmp_dir / "model_epoch-36_vloss-0.1429.pth"
+retrieve_model_weight_path_neg = autodl_tmp_dir / "model_epoch-43_vloss-0.2149.pth"
 # 兼容旧逻辑（默认正离子模型）
 retrieve_model_weight_path = retrieve_model_weight_path_pos
 retrieve_model_weight_paths = {
     "pos": retrieve_model_weight_path_pos,
     "neg": retrieve_model_weight_path_neg,
 }
-retrieve_pubchem_parquet_path = Path("/root/autodl-tmp/pubchem_final_with_formula.parquet")
-retrieve_database_root = Path("/root/autodl-tmp/database")
-retrieve_shared_smiles_txt_path = Path("/root/web/backend/testdata/common.txt")
+retrieve_pubchem_parquet_path = autodl_tmp_dir / "pubchem_final_with_formula.parquet"
+retrieve_database_root = autodl_tmp_dir / "database"
+retrieve_shared_smiles_txt_path = backend_dir / "testdata" / "common.txt"
 
 # 高级检索模型路径配置
-retrieve_advanced_model_weight_path_pos = Path("/root/autodl-tmp/ft_e8_loss1.0037.pth")
-retrieve_advanced_model_weight_path_neg = Path("/root/autodl-tmp/ft_e5_loss1.0547.pth")
+retrieve_advanced_model_weight_path_pos = autodl_tmp_dir / "ft_e8_loss1.0037.pth"
+retrieve_advanced_model_weight_path_neg = autodl_tmp_dir / "ft_e5_loss1.0547.pth"
 retrieve_advanced_model_weight_paths = {
     "pos": retrieve_advanced_model_weight_path_pos,
     "neg": retrieve_advanced_model_weight_path_neg,

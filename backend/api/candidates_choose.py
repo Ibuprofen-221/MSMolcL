@@ -13,7 +13,7 @@ from util.file_utils import get_user_file_path_readonly
 
 candidates_choose_router = APIRouter(prefix="/api", tags=["候选池选择"])
 
-DB_ROOT = Path(getattr(app_cfg, "retrieve_database_root", "/root/autodl-tmp/database"))
+DB_ROOT = Path(app_cfg.retrieve_database_root)
 DEFAULT_DATABASES = ["pubchem"]
 
 

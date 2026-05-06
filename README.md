@@ -1,65 +1,140 @@
-# web 项目代码开源与复现说明
+# MSMolcL — Mass Spectrometry Molecular Retrieval Platform
 
-本仓库仅包含**源码与必要配置**，不包含大型模型文件、数据库文件与运行时生成数据。
-注意，为了运行后端，需要在配置cuda的GPU服务器上运行后端代码
+A chemical deep-model integration platform for mass spectrometry data. Users upload MGF spectrum files and JSON fragmentation trees, and the system runs GPU-accelerated retrieval against PubChem or custom libraries to identify compounds.
 
-## 1. 内容说明
+## Architecture
 
-- 前端源码: frontend
-- 后端源码：backend
-- 依赖配置: frontend/package.json、backend/requirements.txt
+```
+web/
+├── backend/                     # Python FastAPI server (:6008)
+│   ├── main.py                  # App entry point, lifespan, CORS, static mounts
+│   ├── api/                     # Route handlers (auth, upload, retrieve, history, etc.)
+│   ├── core/                    # config.py, db.py, auth.py, rate_limit.py, memory_store.py
+│   ├── models/                  # SQLAlchemy ORM (User)
+│   ├── schemas/                 # Pydantic request/response schemas
+│   ├── services/                # Business logic: preprocessing, retrieval, Sirius workers
+│   │   └── model/               # PyTorch models (GNN, encoders), training scripts
+│   └── util/                    # Path helpers, task directory utilities
+├── frontend/                    # Vue 3 + Vite SPA (:6006)
+│   └── src/
+│       ├── api/                 # Axios API wrappers
+│       ├── components/          # ChemSearch, AdvancedSearch, SpectrumDetailCard, etc.
+│       ├── views/               # Route pages: Login, TaskDetail, HistoryRecords, Docs
+│       ├── utils/               # storage.js (auth/session), statasBatch.js
+│       └── router/              # Vue Router config
+└── .gitignore
+```
 
-## 2. 环境要求
+### Data directory (sibling to `web/`)
 
-- Python：3.10
-- Node.js：18.08.2
-- npm：9.8.1
-- 建议使用vscode IDE运行代码，这样能够直接映射前后端端口到本地
+```
+autodl-tmp/                      # NOT in this repo — download separately
+├── *.pth                        # PyTorch model weights
+├── pubchem_final_with_formula.parquet
+└── database/                    # Per-library parquet files in subdirectories
+```
 
-## 3. 创建并配置虚拟环境
-conda create -n env_name python==3.10
-conda activate env_name
-pip install -r requirements.txt
+## Prerequisites
 
-## 4. 后端启动（FastAPI）
+- **Python** 3.10+
+- **Node.js** 18+
+- **npm** 9+
+- **CUDA-capable GPU** (required for retrieval inference)
+
+## Quick Start
+
+### 1. Clone and set up the backend
 
 ```bash
-conda activate env_name
-python main.py 
-```
-后端默认在6008端口启动
+cd web
 
-## 5. 前端启动（Vite + Vue）
+# Create virtual environment
+conda create -n msmolcl python=3.10
+conda activate msmolcl
+
+# Install dependencies
+pip install -r backend/requirements.txt
+```
+
+### 2. Set up the frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev
 ```
 
-默认前端会在 `6006` 端口启动
-如果使用vscode的转发端口功能，便能直接在浏览器中访问本地6008端口访问前端：http:127.0.0.1:6008
-## 6. 模型与数据文件准备
-本代码文件夹不提供较大的模型 / 数据库文件
-需要在models_and_dbs.tar.gz中额外进行下载。注意：其中pubchem的数据库文件过大(20G)，请准备好足够的磁盘空间。
-为了保持源代码的兼容性，建议您复制其他任意一个数据库文件(parquet)，并改名为Pubchem.parquet
+### 3. Prepare model and database files
 
-并将上述文件统一放在以下位置：
+Create a sibling directory `autodl-tmp/` next to `web/` and place the following files:
 
-在当前文件夹的同级文件夹中创建autodl-tmp文件夹，并将全部文件放在该文件夹下
-路径：
---autodl/database
-          ---pubchem
-          ---ymdb
-          ---...
-        /...pth
-        /...pth
---web/
-  ├── backend/
-  │   ├── requirements.txt
-  │   └── ...
-  ├── frontend/
-  │   ├── package.json
-  │   └── ...
-  ├── .gitignore
-  └── README.md
+```
+autodl-tmp/
+├── model_epoch-36_vloss-0.1429.pth     # Positive-ion retrieval model
+├── model_epoch-43_vloss-0.2149.pth     # Negative-ion retrieval model
+├── ft_e8_loss1.0037.pth                # Advanced retrieval (positive)
+├── ft_e5_loss1.0547.pth                # Advanced retrieval (negative)
+├── pubchem_final_with_formula.parquet  # PubChem compound database
+└── database/                           # Custom library databases
+    ├── pubchem/
+    ├── ymdb/
+    └── ...
+```
+
+> **Note:** Model and database files are large (PubChem parquet ~20 GB). Ensure sufficient disk space.
+
+### 4. Configuration
+
+Key settings are in `backend/core/config.py`. Sensitive values can be overridden via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET_KEY` | (built-in default) | Secret key for JWT token signing |
+| `DATABASE_URL` | `sqlite:///.../users.db` | SQLAlchemy database URL |
+| `CORS_ALLOW_ORIGINS` | localhost origins | Comma-separated list of allowed origins |
+| `CORS_ALLOW_ORIGIN_REGEX` | (empty) | Regex for dynamic origin matching |
+| `BACKEND_HOST` | `0.0.0.0` | Backend listen address |
+| `BACKEND_PORT` | `6008` | Backend listen port |
+| `SIRIUS_CELERY_BROKER_URL` | `redis://127.0.0.1:6379/0` | Sirius worker broker |
+
+### 5. Run
+
+**Backend:**
+```bash
+conda activate msmolcl
+cd backend
+python main.py
+# Starts on http://0.0.0.0:6008
+```
+
+**Frontend (development):**
+```bash
+cd frontend
+npm run dev
+# Starts on http://127.0.0.1:6006, proxies /api-backend → :6008
+```
+
+**Frontend (production build):**
+```bash
+cd frontend
+npm run build
+# Output in dist/ — served by the backend at :6008
+```
+
+## Upload & Retrieval Flow
+
+1. **Upload** MGF spectrum files (with optional JSON fragmentation trees) via the web UI
+2. **MGF-only mode:** Files are sent to Sirius workers (Celery) to generate fragmentation trees asynchronously
+3. **Select candidates** from PubChem or custom libraries
+4. **Run retrieval** — GPU workers process spectra against the selected database and return ranked compound matches
+5. **View results** — detailed spectrum cards with molecular structure visualization
+
+## Storage
+
+- **User accounts:** SQLite via SQLAlchemy (`users.db`)
+- **History:** Per-user JSON files under `user_data/<username>/`
+- **Task files:** Per-task directories under `user_data/<username>/task_<task_id>/`
+- **Session state:** Browser `sessionStorage` (prefixed `u:<username>:`)
+
+## License
+
+This project is provided for research and educational purposes.

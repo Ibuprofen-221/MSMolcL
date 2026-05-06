@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import SpectrumDetailCard from '../components/SpectrumDetailCard.vue'
 import { fetchStatas } from '../api/statas'
+import { buildBatchFileCards, buildTitleMapFromRows } from '../utils/statasBatch'
 
 const route = useRoute()
 const taskId = computed(() => String(route.params.taskId || ''))
@@ -18,79 +19,53 @@ const isCollapsed = ref(false)
 const keyword = ref('')
 const pageSize = ref(12)
 const currentPage = ref(1)
-const allTitles = ref([])
-const activeTitles = ref([])
+const fileCards = ref([])
+const collapseActiveFile = ref('')
+const activeTitle = ref('')
+const activeFileTitleKey = ref('')
 
 const normalMap = ref({})
 const advancedMap = ref({})
-const pairSimilarityMap = ref({})
 
-const filteredTitles = computed(() => {
+const filteredFileCards = computed(() => {
   const query = keyword.value.trim()
-  if (!query) return allTitles.value
-  return allTitles.value.filter((item) => item.includes(query))
+  if (!query) return fileCards.value
+  return fileCards.value.filter((item) => (item.fileName || '').includes(query))
 })
 
-const total = computed(() => filteredTitles.value.length)
-const pagedTitles = computed(() => {
+const total = computed(() => filteredFileCards.value.length)
+const pagedFileCards = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
-  return filteredTitles.value.slice(start, start + pageSize.value)
+  return filteredFileCards.value.slice(start, start + pageSize.value)
 })
 
-const selectedPairKey = computed(() => {
-  if (activeTitles.value.length !== 2) return ''
-  const sortedTitles = [...activeTitles.value].sort()
-  return `${sortedTitles[0]}-${sortedTitles[1]}`
-})
-
-const selectedSimilarity = computed(() => {
-  const key = selectedPairKey.value
+const activeFile = computed(() => {
+  const key = String(collapseActiveFile.value || '').trim()
   if (!key) return null
-  const value = pairSimilarityMap.value[key]
-  return typeof value === 'number' ? value : null
+  return fileCards.value.find((item) => String(item.fileKey || '').trim() === key) || null
 })
 
-const formatSimilarity = (value) => {
-  if (value === null || value === undefined) return 'No similarity data'
-  const num = Number(value)
-  if (Number.isNaN(num)) return 'No similarity data'
-  return num.toFixed(4)
+const cardItems = computed(() => {
+  if (!activeTitle.value) return []
+  const key = activeFileTitleKey.value || activeTitle.value
+  return [{
+    title: activeTitle.value,
+    normalItem: normalMap.value[key] || {},
+    advancedItem: advancedMap.value[key] || {},
+  }]
+})
+
+const pickDefaultTitleByFile = (file) => {
+  const firstTitle = file?.spectra?.[0]?.title
+  return firstTitle || ''
 }
 
-const cardItems = computed(() =>
-  activeTitles.value.map((title) => ({
-    title,
-    normalItem: normalMap.value[title] || {},
-    advancedItem: advancedMap.value[title] || {},
-  }))
-)
-
-const mergeTitleList = (normalList, advancedList) => {
-  const ordered = []
-  const set = new Set()
-  normalList.forEach((item) => {
-    if (!set.has(item.title)) {
-      ordered.push(item.title)
-      set.add(item.title)
-    }
-  })
-  advancedList.forEach((item) => {
-    if (!set.has(item.title)) {
-      ordered.push(item.title)
-      set.add(item.title)
-    }
-  })
-  return ordered
-}
-
-const toTitleMap = (list) => {
-  const map = {}
-  list.forEach((item) => {
-    if (item?.title) {
-      map[item.title] = item
-    }
-  })
-  return map
+const selectFile = (fileKey) => {
+  collapseActiveFile.value = fileKey || ''
+  const picked = fileCards.value.find((item) => item.fileKey === collapseActiveFile.value) || null
+  const title = pickDefaultTitleByFile(picked)
+  activeTitle.value = title
+  activeFileTitleKey.value = title && picked ? `${picked.fileKey}::${title}` : ''
 }
 
 const loadTaskData = async () => {
@@ -101,20 +76,11 @@ const loadTaskData = async () => {
     fetchStatas({ taskId: taskId.value, resultType: 'advanced' }),
   ])
 
-  const normalList =
-    normalResp.status === 'fulfilled'
-      ? normalResp.value?.data?.data?.['碎裂树文件统计']?.['有效碎裂树根节点信息'] || []
-      : []
+  const normalTaskStatas = normalResp.status === 'fulfilled' ? normalResp.value?.data?.data || {} : {}
+  const advancedTaskStatas = advancedResp.status === 'fulfilled' ? advancedResp.value?.data?.data || {} : {}
 
-  const advancedList =
-    advancedResp.status === 'fulfilled'
-      ? advancedResp.value?.data?.data?.['碎裂树文件统计']?.['有效碎裂树根节点信息'] || []
-      : []
-
-  const pairSimMap =
-    normalResp.status === 'fulfilled'
-      ? normalResp.value?.data?.data?.['Spectrum Similarity'] || normalResp.value?.data?.data?.['谱图相似度'] || {}
-      : {}
+  const normalList = normalTaskStatas?.['碎裂树文件统计']?.['有效碎裂树根节点信息'] || []
+  const advancedList = advancedTaskStatas?.['碎裂树文件统计']?.['有效碎裂树根节点信息'] || []
 
   if (normalResp.status === 'rejected') {
     const msg = normalResp.reason?.response?.data?.detail || normalResp.reason?.message || 'Failed to load normal results'
@@ -125,25 +91,65 @@ const loadTaskData = async () => {
     ElMessage.warning(msg)
   }
 
-  normalMap.value = toTitleMap(normalList)
-  advancedMap.value = toTitleMap(advancedList)
-  pairSimilarityMap.value = pairSimMap
-  allTitles.value = mergeTitleList(normalList, advancedList)
+  const normalTitleMap = buildTitleMapFromRows(normalList)
+  const advancedTitleMap = buildTitleMapFromRows(advancedList)
 
+  fileCards.value = await buildBatchFileCards({
+    taskStatas: normalTaskStatas,
+    resultType: 'normal',
+    fetchStatasByPath: (path) => fetchStatas({ path }),
+  })
+
+  const fileNameByTitle = {}
+  fileCards.value.forEach((file) => {
+    ;(file.spectra || []).forEach((row) => {
+      if (row?.title) {
+        fileNameByTitle[row.title] = file.fileKey
+      }
+    })
+  })
+
+  const normalCompositeMap = {}
+  const advancedCompositeMap = {}
+  Object.keys(normalTitleMap).forEach((title) => {
+    const fileKey = fileNameByTitle[title]
+    if (fileKey) normalCompositeMap[`${fileKey}::${title}`] = normalTitleMap[title]
+  })
+  Object.keys(advancedTitleMap).forEach((title) => {
+    const fileKey = fileNameByTitle[title]
+    if (fileKey) advancedCompositeMap[`${fileKey}::${title}`] = advancedTitleMap[title]
+  })
+
+  normalMap.value = { ...normalTitleMap, ...normalCompositeMap }
+  advancedMap.value = { ...advancedTitleMap, ...advancedCompositeMap }
+
+  selectFile(fileCards.value[0]?.fileKey || '')
   loading.page = false
 }
 
-const addCard = (title) => {
-  if (!title) return
-  if (activeTitles.value.includes(title)) return
-  if (activeTitles.value.length >= 2) {
-    activeTitles.value.shift()
-  }
-  activeTitles.value.push(title)
+const handleCollapseChange = (fileKey) => {
+  selectFile(fileKey)
+  nextTick(() => {
+    const root = titleListRef.value?.$el || titleListRef.value
+    if (!root) return
+    const activeItem = root.querySelector('.el-collapse-item.is-active')
+    if (activeItem && typeof activeItem.scrollIntoView === 'function') {
+      activeItem.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
+  })
+}
+
+const handlePickSpectrum = (title) => {
+  activeTitle.value = title || ''
+  activeFileTitleKey.value = activeTitle.value && collapseActiveFile.value ? `${collapseActiveFile.value}::${activeTitle.value}` : ''
 }
 
 const removeCard = (title) => {
-  activeTitles.value = activeTitles.value.filter((item) => item !== title)
+  if (!title) return
+  if (activeTitle.value === title) {
+    activeTitle.value = ''
+    activeFileTitleKey.value = ''
+  }
 }
 
 const resetPage = () => {
@@ -164,37 +170,50 @@ onMounted(() => {
     <aside class="sidebar" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '48px' : '360px' }">
       <div class="sidebar-content" v-if="!isCollapsed">
         <div class="panel-header">
-          <strong>Spectrum list</strong>
+          <strong>File list</strong>
         </div>
 
-        <el-input v-model="keyword" placeholder="Search spectrum title" clearable @input="resetPage" />
+        <el-input v-model="keyword" placeholder="Search file name" clearable @input="resetPage" />
 
-        <div class="title-list">
-          <div
-            v-for="(title, idx) in pagedTitles"
-            :key="title"
+        <el-collapse ref="titleListRef" v-model="collapseActiveFile" accordion class="title-list" @change="handleCollapseChange">
+          <el-collapse-item
+            v-for="(file, idx) in pagedFileCards"
+            :key="file.fileKey"
+            :name="file.fileKey"
             class="title-item"
-            @click="addCard(title)"
           >
-            <div class="title-row">
-              <span class="title-index">#{{ (currentPage - 1) * pageSize + idx + 1 }}</span>
-              <span class="title-text">{{ title }}</span>
-              <span class="checkmark" v-if="activeTitles.includes(title)">✓</span>
+            <template #title>
+              <div class="title-row">
+                <span class="title-index">#{{ (currentPage - 1) * pageSize + idx + 1 }}</span>
+                <span class="title-text">{{ file.fileName }}</span>
+                <span class="checkmark" v-if="collapseActiveFile === file.fileKey">✓</span>
+              </div>
+            </template>
+            <div class="file-spectra-list">
+              <button
+                v-for="row in file.spectra"
+                :key="`${file.fileKey}-${row.title}`"
+                type="button"
+                class="spectrum-btn"
+                :class="{ active: activeTitle === row.title }"
+                @click="handlePickSpectrum(row.title)"
+              >
+                {{ row.title }}
+              </button>
             </div>
-          </div>
-        </div>
+          </el-collapse-item>
+        </el-collapse>
 
         <div class="similarity-panel">
           <div class="sim-header">
-            <strong>Cosine similarity</strong>
-            <span v-if="selectedPairKey" class="sim-key">{{ selectedPairKey }}</span>
+            <strong>File selection</strong>
+            <span v-if="activeFile" class="sim-key">{{ activeFile.fileName }}</span>
           </div>
-          <div class="sim-body" v-if="activeTitles.length === 2">
-            <div class="sim-value">{{ formatSimilarity(selectedSimilarity) }}</div>
-            <div class="sim-hint">Based on normal-search vectors</div>
+          <div class="sim-body" v-if="activeTitle">
+            <div class="sim-hint">当前谱图：{{ activeTitle }}</div>
           </div>
           <div class="sim-body" v-else>
-            <div class="sim-hint">Select two spectra to view similarity</div>
+            <div class="sim-hint">Select one spectrum from current file card.</div>
           </div>
         </div>
 
@@ -212,9 +231,9 @@ onMounted(() => {
     </aside>
 
     <main class="content-area">
-      <el-empty v-if="!cardItems.length" description="Select spectra from the sidebar. Up to 2 cards." />
+      <el-empty v-if="!cardItems.length" description="Select one file card and spectrum from the sidebar accordion." />
 
-      <div v-else class="cards" :class="{ dual: cardItems.length === 2 }">
+      <div v-else class="cards">
         <div v-for="item in cardItems" :key="item.title" class="card-slot">
           <SpectrumDetailCard
             :task-id="taskId"
@@ -265,9 +284,20 @@ onMounted(() => {
 .title-list {
   overflow: auto;
   flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 260px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.file-spectra-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .similarity-panel {
@@ -301,30 +331,37 @@ onMounted(() => {
   gap: 4px;
 }
 
-.sim-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: #409eff;
-  line-height: 1.1;
-}
-
 .sim-hint {
   font-size: 12px;
   color: #6b7280;
 }
 
+.spectrum-btn {
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #fff;
+  color: #303133;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.spectrum-btn:hover {
+  border-color: #409eff;
+  background: #f5f9ff;
+}
+
+.spectrum-btn.active {
+  border-color: #409eff;
+  background: #ecf5ff;
+  color: #1f2937;
+}
+
 .title-item {
   border: 1px solid #ebeef5;
   border-radius: 6px;
-  padding: 8px 10px;
   background: #ffffff;
-  cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.12s ease;
-}
-
-.title-item:hover {
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
 }
 
 .title-row {
@@ -332,6 +369,7 @@ onMounted(() => {
   grid-template-columns: 70px 1fr 28px;
   align-items: center;
   gap: 8px;
+  width: 100%;
   font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, monospace;
 }
 
@@ -389,10 +427,6 @@ onMounted(() => {
   gap: 12px;
 }
 
-.cards.dual {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .card-slot {
   min-width: 0;
 }
@@ -415,10 +449,6 @@ onMounted(() => {
 
   .content-area {
     padding: 16px;
-  }
-
-  .cards.dual {
-    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -22,6 +22,14 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  viewMode: {
+    type: String,
+    default: '',
+  },
+  displayMode: {
+    type: String,
+    default: '',
+  },
 })
 
 const emit = defineEmits(['close'])
@@ -60,7 +68,10 @@ const toEntries = (result) => {
 
 const normalEntries = computed(() => toEntries(props.normalItem?.['检索结果']))
 const advancedEntries = computed(() => toEntries(props.advancedItem?.['检索结果']))
-
+const showNormal = computed(() => props.viewMode !== 'advanced')
+const showAdvanced = computed(() => props.viewMode !== 'normal')
+const showPlotSection = computed(() => props.displayMode !== 'detail')
+const showDetailSection = computed(() => props.displayMode !== 'plot')
 
 const displayAdduct = computed(() => props.normalItem?.adduct || props.advancedItem?.adduct || '-')
 const displayMz = computed(() => props.normalItem?.mz ?? props.advancedItem?.mz ?? '-')
@@ -163,7 +174,7 @@ const queryRank = () => {
 }
 
 watch(
-  () => [props.taskId, props.title],
+  () => [props.taskId, props.title, props.viewMode, props.displayMode],
   () => {
     rankResult.value = null
     smilesInput.value = ''
@@ -171,14 +182,14 @@ watch(
     imageState.advanced = {}
     imageLoadedKey.normal = ''
     imageLoadedKey.advanced = ''
-    renderPlot()
-    autoLoadImages()
+    if (showPlotSection.value) renderPlot()
+    if (showDetailSection.value) autoLoadImages()
   }
 )
 
 onMounted(() => {
-  renderPlot()
-  autoLoadImages()
+  if (showPlotSection.value) renderPlot()
+  if (showDetailSection.value) autoLoadImages()
 })
 
 onUnmounted(() => {
@@ -197,147 +208,150 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <div class="plot-wrapper" v-loading="plotLoading">
+    <div v-if="showPlotSection" class="plot-wrapper" v-loading="plotLoading">
       <div ref="plotRef" class="plot-canvas"></div>
     </div>
 
-    <div class="meta-row">
-      <div><strong>Adduct:</strong> {{ displayAdduct }}</div>
-      <div><strong>Precursor m/z:</strong> {{ displayMz }}</div>
-    </div>
+    <template v-if="showDetailSection">
+      <div class="meta-row">
+        <div><strong>Adduct:</strong> {{ displayAdduct }}</div>
+        <div><strong>Precursor m/z:</strong> {{ displayMz }}</div>
+      </div>
 
-    <div class="top-grid">
-      <div class="top-col">
-        <div class="top-title-row">
-          <div class="top-title">Normal search Top100 details</div>
-          <span v-if="imageLoading.normal" class="image-loading-hint">结构图生成中...</span>
-        </div>
-        <div class="result-list">
-          <div v-if="normalEntries.length === 0" class="empty-block">No normal search results</div>
-          <div v-for="row in normalEntries" :key="`normal-${row.rank}-${row.smiles}`" class="result-card">
-            <div class="result-left">
-              <img
-                v-if="getImageMeta('normal', row.smiles).status === 'ready' && getImageMeta('normal', row.smiles).image_src"
-                :src="getImageMeta('normal', row.smiles).image_src"
-                :alt="row.smiles"
-                class="mol-image"
-              />
-              <div v-else class="mol-placeholder">{{ getImageMeta('normal', row.smiles).status === 'failed' ? '×' : '-' }}</div>
+      <div class="top-grid">
+        <div v-if="showNormal" class="top-col">
+          <div class="top-title-row">
+            <div class="top-title">Normal search Top100 details</div>
+            <span v-if="imageLoading.normal" class="image-loading-hint">结构图生成中...</span>
+          </div>
+          <div class="result-list">
+            <div v-if="normalEntries.length === 0" class="empty-block">No normal search results</div>
+            <div v-for="row in normalEntries" :key="`normal-${row.rank}-${row.smiles}`" class="result-card">
+              <div class="result-left">
+                <img
+                  v-if="getImageMeta('normal', row.smiles).status === 'ready' && getImageMeta('normal', row.smiles).image_src"
+                  :src="getImageMeta('normal', row.smiles).image_src"
+                  :alt="row.smiles"
+                  class="mol-image"
+                />
+                <div v-else class="mol-placeholder">{{ getImageMeta('normal', row.smiles).status === 'failed' ? '×' : '-' }}</div>
+              </div>
+              <div class="result-right">
+                <div><strong>Rank:</strong> {{ row.rank }} | <strong>Score:</strong> {{ row.score ? Number(row.score).toFixed(4) : '-' }}</div>
+                <div><strong>SMILES:</strong> {{ row.smiles || '-' }}</div>
+                <div><strong>FORMULA:</strong> {{ row.formula || '-' }}</div>
+                <div><strong>GENERIC_NAME:</strong> {{ row.generic_name || '-' }}</div>
+                <div><strong>DATABASE_NAME:</strong> {{ row.database_name || '-' }}</div>
+                <div><strong>DATABASE_ID:</strong> {{ row.database_id || '-' }}</div>
+                <div><strong>INCHI_KEY:</strong> {{ row.inchi_key || '-' }}</div>
+              </div>
             </div>
-            <div class="result-right">
-              <div><strong>Rank:</strong> {{ row.rank }} | <strong>Score:</strong> {{ row.score ? Number(row.score).toFixed(4) : '-' }}</div>
-              <div><strong>SMILES:</strong> {{ row.smiles || '-' }}</div>
-              <div><strong>FORMULA:</strong> {{ row.formula || '-' }}</div>
-              <div><strong>GENERIC_NAME:</strong> {{ row.generic_name || '-' }}</div>
-              <div><strong>DATABASE_NAME:</strong> {{ row.database_name || '-' }}</div>
-              <div><strong>DATABASE_ID:</strong> {{ row.database_id || '-' }}</div>
-              <div><strong>INCHI_KEY:</strong> {{ row.inchi_key || '-' }}</div>
+          </div>
+        </div>
+
+        <div v-if="showAdvanced" class="top-col">
+          <div class="top-title-row">
+            <div class="top-title">Advanced search Top100 details</div>
+            <span v-if="imageLoading.advanced" class="image-loading-hint">结构图生成中...</span>
+          </div>
+          <div class="result-list">
+            <div v-if="advancedEntries.length === 0" class="empty-block">No advanced search results</div>
+            <div v-for="row in advancedEntries" :key="`advanced-${row.rank}-${row.smiles}`" class="result-card">
+              <div class="result-left">
+                <img
+                  v-if="getImageMeta('advanced', row.smiles).status === 'ready' && getImageMeta('advanced', row.smiles).image_src"
+                  :src="getImageMeta('advanced', row.smiles).image_src"
+                  :alt="row.smiles"
+                  class="mol-image"
+                />
+                <div v-else class="mol-placeholder">{{ getImageMeta('advanced', row.smiles).status === 'failed' ? '×' : '-' }}</div>
+              </div>
+              <div class="result-right">
+                <div><strong>Rank:</strong> {{ row.rank }} | <strong>Score:</strong> {{ row.score ? Number(row.score).toFixed(4) : '-' }}</div>
+                <div><strong>SMILES:</strong> {{ row.smiles || '-' }}</div>
+                <div><strong>FORMULA:</strong> {{ row.formula || '-' }}</div>
+                <div><strong>GENERIC_NAME:</strong> {{ row.generic_name || '-' }}</div>
+                <div><strong>DATABASE_NAME:</strong> {{ row.database_name || '-' }}</div>
+                <div><strong>DATABASE_ID:</strong> {{ row.database_id || '-' }}</div>
+                <div><strong>INCHI_KEY:</strong> {{ row.inchi_key || '-' }}</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="top-col">
-        <div class="top-title-row">
-          <div class="top-title">Advanced search Top100 details</div>
-          <span v-if="imageLoading.advanced" class="image-loading-hint">结构图生成中...</span>
-        </div>
-        <div class="result-list">
-          <div v-if="advancedEntries.length === 0" class="empty-block">No advanced search results</div>
-          <div v-for="row in advancedEntries" :key="`advanced-${row.rank}-${row.smiles}`" class="result-card">
-            <div class="result-left">
-              <img
-                v-if="getImageMeta('advanced', row.smiles).status === 'ready' && getImageMeta('advanced', row.smiles).image_src"
-                :src="getImageMeta('advanced', row.smiles).image_src"
-                :alt="row.smiles"
-                class="mol-image"
-              />
-              <div v-else class="mol-placeholder">{{ getImageMeta('advanced', row.smiles).status === 'failed' ? '×' : '-' }}</div>
-            </div>
-            <div class="result-right">
-              <div><strong>Rank:</strong> {{ row.rank }} | <strong>Score:</strong> {{ row.score ? Number(row.score).toFixed(4) : '-' }}</div>
-              <div><strong>SMILES:</strong> {{ row.smiles || '-' }}</div>
-              <div><strong>FORMULA:</strong> {{ row.formula || '-' }}</div>
-              <div><strong>GENERIC_NAME:</strong> {{ row.generic_name || '-' }}</div>
-              <div><strong>DATABASE_NAME:</strong> {{ row.database_name || '-' }}</div>
-              <div><strong>DATABASE_ID:</strong> {{ row.database_id || '-' }}</div>
-              <div><strong>INCHI_KEY:</strong> {{ row.inchi_key || '-' }}</div>
-            </div>
+      <div class="query-row">
+        <el-input
+          v-model="smilesInput"
+          placeholder="Enter a SMILES to check Top100 rank"
+          clearable
+          @keyup.enter="queryRank"
+        />
+        <el-button type="primary" @click="queryRank">Check</el-button>
+      </div>
+
+      <div v-if="rankResult" class="query-result">
+        <div class="query-result-title"><strong>SMILES:</strong> {{ rankResult.smiles }}</div>
+        <div class="query-card-grid">
+          <div v-if="showNormal" class="query-card">
+            <div class="query-card-header">Normal search match</div>
+            <template v-if="rankResult.normalEntry">
+              <div class="query-card-body">
+                <img
+                  v-if="getImageMeta('normal', rankResult.normalEntry.smiles).status === 'ready' && getImageMeta('normal', rankResult.normalEntry.smiles).image_src"
+                  :src="getImageMeta('normal', rankResult.normalEntry.smiles).image_src"
+                  :alt="rankResult.normalEntry.smiles"
+                  class="query-mol-image"
+                />
+                <div v-else class="query-mol-placeholder">{{ getImageMeta('normal', rankResult.normalEntry.smiles).status === 'failed' ? '×' : '-' }}</div>
+                <div class="query-meta">
+                  <div><strong>Rank:</strong> {{ rankResult.normalEntry.rank }}</div>
+                  <div><strong>Score:</strong> {{ rankResult.normalEntry.score ? Number(rankResult.normalEntry.score).toFixed(4) : '-' }}</div>
+                  <div><strong>FORMULA:</strong> {{ rankResult.normalEntry.formula || '-' }}</div>
+                  <div><strong>GENERIC_NAME:</strong> {{ rankResult.normalEntry.generic_name || '-' }}</div>
+                  <div><strong>DATABASE_NAME:</strong> {{ rankResult.normalEntry.database_name || '-' }}</div>
+                  <div><strong>DATABASE_ID:</strong> {{ rankResult.normalEntry.database_id || '-' }}</div>
+                  <div><strong>INCHI_KEY:</strong> {{ rankResult.normalEntry.inchi_key || '-' }}</div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="query-empty">No matched result</div>
+          </div>
+
+          <div v-if="showAdvanced" class="query-card">
+            <div class="query-card-header">Advanced search match</div>
+            <template v-if="rankResult.advancedEntry">
+              <div class="query-card-body">
+                <img
+                  v-if="getImageMeta('advanced', rankResult.advancedEntry.smiles).status === 'ready' && getImageMeta('advanced', rankResult.advancedEntry.smiles).image_src"
+                  :src="getImageMeta('advanced', rankResult.advancedEntry.smiles).image_src"
+                  :alt="rankResult.advancedEntry.smiles"
+                  class="query-mol-image"
+                />
+                <div v-else class="query-mol-placeholder">{{ getImageMeta('advanced', rankResult.advancedEntry.smiles).status === 'failed' ? '×' : '-' }}</div>
+                <div class="query-meta">
+                  <div><strong>Rank:</strong> {{ rankResult.advancedEntry.rank }}</div>
+                  <div><strong>Score:</strong> {{ rankResult.advancedEntry.score ? Number(rankResult.advancedEntry.score).toFixed(4) : '-' }}</div>
+                  <div><strong>FORMULA:</strong> {{ rankResult.advancedEntry.formula || '-' }}</div>
+                  <div><strong>GENERIC_NAME:</strong> {{ rankResult.advancedEntry.generic_name || '-' }}</div>
+                  <div><strong>DATABASE_NAME:</strong> {{ rankResult.advancedEntry.database_name || '-' }}</div>
+                  <div><strong>DATABASE_ID:</strong> {{ rankResult.advancedEntry.database_id || '-' }}</div>
+                  <div><strong>INCHI_KEY:</strong> {{ rankResult.advancedEntry.inchi_key || '-' }}</div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="query-empty">No matched result</div>
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="query-row">
-      <el-input
-        v-model="smilesInput"
-        placeholder="Enter a SMILES to check Top100 rank"
-        clearable
-        @keyup.enter="queryRank"
-      />
-      <el-button type="primary" @click="queryRank">Check</el-button>
-    </div>
-
-    <div v-if="rankResult" class="query-result">
-      <div class="query-result-title"><strong>SMILES:</strong> {{ rankResult.smiles }}</div>
-      <div class="query-card-grid">
-        <div class="query-card">
-          <div class="query-card-header">Normal search match</div>
-          <template v-if="rankResult.normalEntry">
-            <div class="query-card-body">
-              <img
-                v-if="getImageMeta('normal', rankResult.normalEntry.smiles).status === 'ready' && getImageMeta('normal', rankResult.normalEntry.smiles).image_src"
-                :src="getImageMeta('normal', rankResult.normalEntry.smiles).image_src"
-                :alt="rankResult.normalEntry.smiles"
-                class="query-mol-image"
-              />
-              <div v-else class="query-mol-placeholder">{{ getImageMeta('normal', rankResult.normalEntry.smiles).status === 'failed' ? '×' : '-' }}</div>
-              <div class="query-meta">
-                <div><strong>Rank:</strong> {{ rankResult.normalEntry.rank }}</div>
-                <div><strong>Score:</strong> {{ rankResult.normalEntry.score ? Number(rankResult.normalEntry.score).toFixed(4) : '-' }}</div>
-                <div><strong>FORMULA:</strong> {{ rankResult.normalEntry.formula || '-' }}</div>
-                <div><strong>GENERIC_NAME:</strong> {{ rankResult.normalEntry.generic_name || '-' }}</div>
-                <div><strong>DATABASE_NAME:</strong> {{ rankResult.normalEntry.database_name || '-' }}</div>
-                <div><strong>DATABASE_ID:</strong> {{ rankResult.normalEntry.database_id || '-' }}</div>
-                <div><strong>INCHI_KEY:</strong> {{ rankResult.normalEntry.inchi_key || '-' }}</div>
-              </div>
-            </div>
-          </template>
-          <div v-else class="query-empty">No matched result</div>
-        </div>
-
-        <div class="query-card">
-          <div class="query-card-header">Advanced search match</div>
-          <template v-if="rankResult.advancedEntry">
-            <div class="query-card-body">
-              <img
-                v-if="getImageMeta('advanced', rankResult.advancedEntry.smiles).status === 'ready' && getImageMeta('advanced', rankResult.advancedEntry.smiles).image_src"
-                :src="getImageMeta('advanced', rankResult.advancedEntry.smiles).image_src"
-                :alt="rankResult.advancedEntry.smiles"
-                class="query-mol-image"
-              />
-              <div v-else class="query-mol-placeholder">{{ getImageMeta('advanced', rankResult.advancedEntry.smiles).status === 'failed' ? '×' : '-' }}</div>
-              <div class="query-meta">
-                <div><strong>Rank:</strong> {{ rankResult.advancedEntry.rank }}</div>
-                <div><strong>Score:</strong> {{ rankResult.advancedEntry.score ? Number(rankResult.advancedEntry.score).toFixed(4) : '-' }}</div>
-                <div><strong>FORMULA:</strong> {{ rankResult.advancedEntry.formula || '-' }}</div>
-                <div><strong>GENERIC_NAME:</strong> {{ rankResult.advancedEntry.generic_name || '-' }}</div>
-                <div><strong>DATABASE_NAME:</strong> {{ rankResult.advancedEntry.database_name || '-' }}</div>
-                <div><strong>DATABASE_ID:</strong> {{ rankResult.advancedEntry.database_id || '-' }}</div>
-                <div><strong>INCHI_KEY:</strong> {{ rankResult.advancedEntry.inchi_key || '-' }}</div>
-              </div>
-            </div>
-          </template>
-          <div v-else class="query-empty">No matched result</div>
-        </div>
-      </div>
-    </div>
+    </template>
   </el-card>
 </template>
 
 <style scoped>
 .detail-card {
   height: 100%;
+  overflow: auto;
 }
 
 .card-header {

@@ -71,6 +71,9 @@ def parse_adduct_string(raw_adduct_str: str, cfg) -> str:
         return standardized if standardized in lst else "Unknown"
 
 
+ION_KEY_ALIASES = {'ION', 'ADDUCTIONNAME', 'ADDUCT', 'ADDUCTNAME', 'ADDUCTION', 'PRECURSORION'}
+
+
 def parse_mgf_file(mgf_path: str, cfg=None) -> List[Dict]:
     """解析 MGF 文件以提取 MS1 (前体) 信息"""
     with open(mgf_path, 'r') as f:
@@ -91,8 +94,10 @@ def parse_mgf_file(mgf_path: str, cfg=None) -> List[Dict]:
                 precursor_mz = float(line.split('=', 1)[1].split()[0])
             elif line.startswith('MSLEVEL='):
                 ms_level = int(line.split('=', 1)[1])
-            elif line.startswith('ADDUCTIONNAME='):
-                adduct = parse_adduct_string(line.split('=', 1)[1].strip(), cfg)
+            elif '=' in line:
+                key, value = line.split('=', 1)
+                if key.strip().upper() in ION_KEY_ALIASES:
+                    adduct = parse_adduct_string(value.strip(), cfg)
 
         
         if ms_level == 1 and precursor_mz is not None and title is not None:
@@ -101,6 +106,7 @@ def parse_mgf_file(mgf_path: str, cfg=None) -> List[Dict]:
                 'ms_level': ms_level, 'adduct': adduct if adduct else "Unknown"
             })
     return data
+
 
 def parse_ms2_from_mgf(mgf_path: str) -> List[Dict]:
     """

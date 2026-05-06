@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getToken, removeToken } from '../utils/storage'
 
 const http = axios.create({
-  baseURL: '/api-backend',
+  baseURL: import.meta.env.DEV ? '/api-backend' : '',
   timeout: 600000,
 })
 

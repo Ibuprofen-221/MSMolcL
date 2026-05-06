@@ -78,3 +78,34 @@ backend/smiles_image/
 .env
 .env.*
 !.env.example
+
+# =========================
+# Project guidance (not shipped)
+# =========================
+CLAUDE.md
+
+# =========================
+# Temporary / dev scratch directories
+# =========================
+temp/
+backup_snapshots/
+fragtree_workers/
+sirius/
+sirius-client-openAPI-*/
+
+# =========================
+# Frontend build timestamp artifacts
+# =========================
+frontend/vite.config.js.timestamp-*.mjs
+
+# =========================
+# Scratch / standalone utility scripts
+# =========================
+1fragtree.py
+
+# =========================
+# Chinese markdown working notes (keep README.md)
+# =========================
+sirius*.md
+前端*.md
+批次*.md

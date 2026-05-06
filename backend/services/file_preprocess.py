@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set
 import numpy as np
@@ -41,6 +42,48 @@ ROOT_FRAGMENT_ID = 0  # 碎裂树根节点的fragmentId值
 # 示例输入文件路径（按要求设置）
 EXAMPLE_SPECTRUM_FILE = str(_BACKEND_DIR / "testdata" / "C9H18N2O2_4.mgf")  # 输入谱图文件
 EXAMPLE_FRAGTREE_FILE = str(_BACKEND_DIR / "testdata" / "C9H18N2O2_4.json")  # 输入碎裂树文件
+
+# ION键名兼容：上传后第一步统一识别并归一化到ION语义
+ION_KEY_ALIASES = {"ION", "ADDUCTIONNAME", "ADDUCT", "ADDUCTNAME", "ADDUCTION", "PRECURSORION"}
+ION_VALUE_ALIASES = {
+    "M": "[M]+",
+    "M+": "[M]+",
+    "M-H": "[M-H]-",
+    "[M-H]": "[M-H]-",
+    "M+H": "[M+H]+",
+    "[M+H]": "[M+H]+",
+    "M+NA": "[M+Na]+",
+    "[M+NA]": "[M+Na]+",
+    "M+K": "[M+K]+",
+    "[M+K]": "[M+K]+",
+    "M+NH4": "[M+NH4]+",
+    "[M+NH4]": "[M+NH4]+",
+    "M+ACN+H": "[M+ACN+H]+",
+    "[M+ACN+H]": "[M+ACN+H]+",
+    "M+FA+H": "[M+FA+H]+",
+    "[M+FA+H]": "[M+FA+H]+",
+}
+
+
+def normalize_ion_value(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+
+    compact = value.replace(" ", "")
+    upper_compact = compact.upper()
+    mapped = ION_VALUE_ALIASES.get(upper_compact)
+    if mapped:
+        return mapped
+
+    if compact.startswith("[") and (compact.endswith("]+") or compact.endswith("]-")):
+        return compact
+
+    if re.fullmatch(r"M(?:[+-].+)?", upper_compact):
+        sign = "-" if "-" in upper_compact and "+" not in upper_compact else "+"
+        return f"[{compact}]{sign}"
+
+    return value
 
 
 class SpectrumNormalizer:
@@ -166,9 +209,10 @@ class SpectrumNormalizer:
                         current_block["ms_level"] = int(stripped_line.split("=", 1)[1].strip())
                     except ValueError:
                         current_block["ms_level"] = 2
-            elif stripped_line.startswith("ADDUCTIONNAME="):
-                if current_block:
-                    current_block["adduct"] = stripped_line.split("=", 1)[1].strip()
+            elif current_block and "=" in stripped_line:
+                key, value = stripped_line.split("=", 1)
+                if key.strip().upper() in ION_KEY_ALIASES:
+                    current_block["adduct"] = normalize_ion_value(value.strip())
             else:
                 # 解析峰数据（保留m/z原始字符串，仅转换数值用于计算）
                 if current_block and not stripped_line.startswith("#") and stripped_line:
@@ -315,7 +359,7 @@ class SpectrumNormalizer:
                 f.write(f"TITLE={title}\n")
                 f.write(f"PEPMASS={precursor_mz_str}\n")
                 f.write("MSLEVEL=1\n")
-                f.write(f"ADDUCTIONNAME={spec.get('adduct', '')}\n")
+                f.write(f"ION={normalize_ion_value(spec.get('adduct', ''))}\n")
                 f.write("END IONS\n\n")
                 
                 # 写入MS2部分（m/z用原始字符串，强度用归一化后的值）
@@ -436,10 +480,14 @@ class SpectrumFragTreeMatcher:
             mz_from_mgf = mgf_info.get("precursor_mz") if mgf_info else None
             adduct_from_mgf = mgf_info.get("adduct") if mgf_info else ""
 
+            peaks_data = mgf_info.get("peaks", np.array([])) if mgf_info else np.array([])
+            peaks_count = int(len(peaks_data)) if hasattr(peaks_data, "__len__") else 0
+
             merged_root_info.append({
                 "title": title,
                 "adduct": adduct_from_mgf if adduct_from_mgf else fragtree_info.get("adduct", ""),
-                "mz": mz_from_mgf if mz_from_mgf else fragtree_info.get("mz", 0.0)
+                "mz": mz_from_mgf if mz_from_mgf else fragtree_info.get("mz", 0.0),
+                "peaks": peaks_count,
             })
 
         # 导出有效对的总MGF和总JSON文件（仅总文件）
@@ -506,6 +554,91 @@ def main(
     print(f"有效对总MGF文件: {VALID_PAIRS_MGF}")
     print(f"有效对总JSON文件: {VALID_PAIRS_JSON}")
     print(f"统计信息已保存至: {STATS_OUTPUT_PATH}")
+
+
+def process_batch_pairs(
+    pair_inputs: list[dict],
+    output_base_dir: str | Path,
+) -> dict:
+    """批次预处理：逐对复用单文件主流程并聚合输出，兼容原有核心逻辑。"""
+    base_dir = Path(output_base_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    merged_root_info: list[dict] = []
+    merged_valid_pairs: list[str] = []
+    merged_fragtrees: dict = {}
+    merged_spectra_text_parts: list[str] = []
+    batch_items: list[dict] = []
+
+    for idx, item in enumerate(pair_inputs, start=1):
+        pair_key = str(item.get("pair_key") or f"pair_{idx}")
+        spectrum_file = str(item.get("spectrum_file_path") or "")
+        fragtree_file = str(item.get("fragtree_file_path") or "")
+        if not spectrum_file or not fragtree_file:
+            raise ValueError(f"批次项缺少输入文件: {pair_key}")
+
+        pair_dir = base_dir / f"pair_{idx:03d}_{pair_key}"
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        main(spectrum_file_path=spectrum_file, fragtree_file_path=fragtree_file, output_base_dir=pair_dir)
+
+        pair_statas_path = pair_dir / "statas.json"
+        pair_fragtrees_path = pair_dir / "valid_pairs_fragtrees.json"
+        pair_spectra_path = pair_dir / "valid_pairs_spectra.mgf"
+
+        if not pair_statas_path.exists() or not pair_fragtrees_path.exists() or not pair_spectra_path.exists():
+            raise FileNotFoundError(f"批次项输出不完整: {pair_key}")
+
+        pair_statas = json.loads(pair_statas_path.read_text(encoding="utf-8"))
+        pair_fragtrees = json.loads(pair_fragtrees_path.read_text(encoding="utf-8"))
+        pair_spectra_text = pair_spectra_path.read_text(encoding="utf-8")
+
+        pair_root_info = pair_statas.get("碎裂树文件统计", {}).get("有效碎裂树根节点信息", [])
+        pair_valid_pairs = pair_statas.get("最终有效对", [])
+
+        merged_root_info.extend(pair_root_info)
+        merged_valid_pairs.extend(pair_valid_pairs)
+        merged_fragtrees.update(pair_fragtrees)
+        if pair_spectra_text.strip():
+            merged_spectra_text_parts.append(pair_spectra_text.strip())
+
+        batch_items.append(
+            {
+                "pair_key": pair_key,
+                "pair_dir": pair_dir.name,
+                "output_files": {
+                    "statas": str(pair_statas_path.resolve()),
+                    "fragtrees": str(pair_fragtrees_path.resolve()),
+                    "spectra": str(pair_spectra_path.resolve()),
+                },
+                "valid_pairs_count": len(pair_valid_pairs),
+            }
+        )
+
+    merged_statas = {
+        "谱图文件统计": {
+            "原始文件中的谱图数量": len(merged_root_info),
+            "原始谱图title": [item.get("title", "") for item in merged_root_info],
+            "解析的原始块数量": len(merged_root_info),
+        },
+        "碎裂树文件统计": {
+            "有效谱图title": [item.get("title", "") for item in merged_root_info],
+            "有效碎裂树根节点信息": merged_root_info,
+        },
+        "最终有效对": merged_valid_pairs,
+        "最终有效对数量": len(merged_valid_pairs),
+        "批次文件": batch_items,
+    }
+
+    (base_dir / "statas.json").write_text(json.dumps(merged_statas, ensure_ascii=False, indent=2), encoding="utf-8")
+    (base_dir / "valid_pairs_fragtrees.json").write_text(json.dumps(merged_fragtrees, ensure_ascii=False, indent=2), encoding="utf-8")
+    (base_dir / "valid_pairs_spectra.mgf").write_text("\n\n".join(merged_spectra_text_parts) + ("\n" if merged_spectra_text_parts else ""), encoding="utf-8")
+
+    return {
+        "statas_path": str((base_dir / "statas.json").resolve()),
+        "fragtrees_path": str((base_dir / "valid_pairs_fragtrees.json").resolve()),
+        "spectra_path": str((base_dir / "valid_pairs_spectra.mgf").resolve()),
+        "paired_count": len(batch_items),
+    }
 
 
 # ======================== 执行入口 ========================

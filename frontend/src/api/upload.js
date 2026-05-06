@@ -7,3 +7,9 @@ export function uploadFiles(formData, onUploadProgress) {
   })
 }
 
+export function getUploadFilesStatus(taskId) {
+  return http.get('/api/upload-files/status', {
+    params: { task_id: taskId },
+  })
+}
+

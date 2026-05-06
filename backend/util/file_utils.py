@@ -149,7 +149,8 @@ async def save_upload_file(upload_file: UploadFile, target_path: Path) -> None:
             if current_size > file_size_limit:
                 output_file.close()
                 safe_remove_file(target_path)
-                raise FileSizeError("文件大小超过100MB限制")
+                limit_mb = file_size_limit // (1024 * 1024)
+                raise FileSizeError(f"文件大小超过{limit_mb}MB限制")
 
             output_file.write(chunk)
 

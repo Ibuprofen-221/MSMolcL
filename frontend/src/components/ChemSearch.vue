@@ -1,21 +1,24 @@
 <script setup>
-import { computed, inject, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import Plotly from 'plotly.js-dist-min'
 import { ElMessage } from 'element-plus'
 import { checkHealth } from '../api/health'
-import { uploadFiles } from '../api/upload'
+import { getUploadFilesStatus, uploadFiles } from '../api/upload'
 import { chooseCandidates, getCandidateDatabases } from '../api/candidate'
 import { getRetrieveStatus, runRetrieve } from '../api/retrieve'
 import { downloadTaskFile } from '../api/download'
+import { fetchSpectrumPlot } from '../api/spectrum'
 import { fetchStatas } from '../api/statas'
-import { toImageUrl, visualizeSmiles } from '../api/smiles'
+import { buildBatchFileCards, flattenFileCardSpectra } from '../utils/statasBatch'
 import { updateHistoryRecord } from '../api/history'
 import { getCurrentUser, getSessionByUser, removeSessionByUser, setSessionByUser } from '../utils/storage'
 
-const uploadForm = reactive({
-  mgfFile: null,
-  jsonFile: null,
-})
+const STEP_UPLOAD = 'upload'
+const STEP_FILES = 'files'
+const STEP_CANDIDATES = 'candidates'
+const STEP_RESULTS = 'results'
 
+const uploadForm = reactive({ mgfFiles: [], jsonFiles: [] })
 const chooseForm = reactive({
   searchType: 'pubchem',
   ionMode: 'pos',
@@ -23,13 +26,7 @@ const chooseForm = reactive({
   databases: ['pubchem'],
   customFile: null,
 })
-
-const paths = reactive({
-  taskId: '',
-  statasPath: '',
-  fragtreesPath: '',
-  spectraPath: '',
-})
+const paths = reactive({ taskId: '', statasPath: '', fragtreesPath: '', spectraPath: '' })
 
 const chooseData = ref(null)
 const availableDatabases = ref([])
@@ -38,45 +35,31 @@ const retrieveSummary = ref(null)
 const retrieveJob = ref(null)
 const statasData = ref(null)
 const spectraList = ref([])
+const fileCards = ref([])
+const batchSummary = ref(null)
 const uploadProgress = ref(0)
+const uploadState = ref('idle')
+const currentStep = ref(STEP_UPLOAD)
+const globalError = ref('')
 
 const mgfUploadRef = ref(null)
 const jsonUploadRef = ref(null)
 const customUploadRef = ref(null)
-const uploadState = ref('idle')
-
-const collapseActive = ref([])
+const collapseActiveFile = ref('')
+const resultActiveFile = ref('')
+const resultActiveTitle = ref('')
+const summaryCollapseRef = ref(null)
+const resultCollapseRef = ref(null)
+const resultPlotRef = ref(null)
+const resultPlotLoading = ref(false)
+const resultPlotError = ref('')
+const resultPlotKey = ref('')
 const pageSize = 10
 const currentPage = ref(1)
+const resultPageSize = 12
+const resultCurrentPage = ref(1)
 
-const titleQuery = ref('')
-const selectedSpectrumTitle = ref('')
-const smilesSidebarOpen = ref(false)
-const smilesCards = ref([])
-
-const SMILES_RAIL_WIDTH = 40
-const SMILES_PANEL_WIDTH = 380
-const layoutHeaderOffset = inject('layoutHeaderOffset', ref(200))
-const setRightSidebarWidth = inject('layoutSetRightSidebarWidth', () => {})
-
-const smilesSidebarWidth = computed(() => (smilesSidebarOpen.value ? SMILES_RAIL_WIDTH + SMILES_PANEL_WIDTH : SMILES_RAIL_WIDTH))
-const smilesSidebarStyle = computed(() => ({
-  top: `${layoutHeaderOffset.value}px`,
-  height: `calc(100vh - ${layoutHeaderOffset.value}px)`,
-}))
-
-watch(smilesSidebarWidth, (width) => {
-  setRightSidebarWidth(width)
-}, { immediate: true })
-
-const loading = reactive({
-  health: false,
-  upload: false,
-  choose: false,
-  retrieve: false,
-  statas: false,
-  smiles: false,
-})
+const loading = reactive({ health: false, upload: false, choose: false, retrieve: false, statas: false })
 
 const sessionKeys = {
   upload: 'uploadFilesInfo',
@@ -84,64 +67,228 @@ const sessionKeys = {
   retrieve: 'retrieveSummary',
 }
 
-const getSessionUsername = () => String(getCurrentUser()?.username || '').trim()
-
 const RETRIEVE_POLL_INTERVAL_MS = 2000
 const RETRIEVE_POLL_TIMEOUT_MS = 60 * 60 * 1000
+const UPLOAD_POLL_INTERVAL_MS = 2000
+const UPLOAD_POLL_TIMEOUT_MS = 60 * 60 * 1000
 let stopRetrievePolling = false
+let stopUploadPolling = false
 
-const effectiveCount = computed(() => spectraList.value.length)
-const canDownloadStatas = computed(() => Boolean(paths.taskId && retrieveJob.value?.status === 'success'))
-const canCopyTaskId = computed(() => Boolean(paths.taskId))
-const uploadButtonText = computed(() => (uploadState.value === 'finished' ? 'Finished' : 'Submit'))
-const canSubmitUpload = computed(() => uploadState.value !== 'finished' && !loading.upload)
+const getSessionUsername = () => String(getCurrentUser()?.username || '').trim()
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const uploadDone = computed(() => Boolean(paths.taskId) && uploadState.value === 'finished')
+const chooseDone = computed(() => Boolean(chooseData.value))
+const retrieveDone = computed(() => ['success', 'partial_failed'].includes(retrieveJob.value?.status || ''))
+
+const fileCount = computed(() => fileCards.value.length)
+const pagedFileCards = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return fileCards.value.slice(start, start + pageSize)
+})
+const pagedResultFiles = computed(() => {
+  const start = (resultCurrentPage.value - 1) * resultPageSize
+  return fileCards.value.slice(start, start + resultPageSize)
+})
+
+const resultCurrentFile = computed(() => {
+  const key = String(resultActiveFile.value || '').trim()
+  if (!key) return null
+  return fileCards.value.find((item) => String(item.fileKey || '').trim() === key) || null
+})
+const resultCurrentSpectra = computed(() => resultCurrentFile.value?.spectra || [])
+const resultCurrentSpectrum = computed(() => {
+  const key = String(resultActiveTitle.value || '').trim()
+  if (!key) return null
+  return resultCurrentSpectra.value.find((item) => String(item.title || '').trim() === key) || null
+})
+
+const normalResultEntries = computed(() => {
+  const rows = Array.isArray(resultCurrentSpectrum.value?.result?.result_top100)
+    ? resultCurrentSpectrum.value.result.result_top100
+    : []
+  return rows.map((row, idx) => ({
+    rank: row?.rank ?? (idx + 1),
+    score: row?.score ?? '',
+    smiles: row?.smiles || '',
+    formula: row?.formula || '',
+    inchi_key: row?.inchi_key || '',
+    generic_name: row?.generic_name || '',
+    database_name: row?.database_name || '',
+    database_id: row?.database_id || '',
+  }))
+})
+
+const renderResultPlot = async () => {
+  await nextTick()
+  const title = String(resultCurrentSpectrum.value?.title || '').trim()
+  if (!paths.taskId || !title) {
+    resultPlotLoading.value = false
+    resultPlotError.value = ''
+    if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
+    return
+  }
+
+  const requestKey = `${paths.taskId}::${title}`
+  resultPlotKey.value = requestKey
+  resultPlotLoading.value = true
+  resultPlotError.value = ''
+
+  try {
+    const resp = await fetchSpectrumPlot({ taskId: paths.taskId, title })
+    const payload = resp?.data?.data?.plotly_data
+    if (!payload?.data || !payload?.layout) {
+      throw new Error('Invalid spectrum payload')
+    }
+    if (resultPlotKey.value !== requestKey) return
+
+    await nextTick()
+    if (!resultPlotRef.value) return
+
+    await Plotly.react(resultPlotRef.value, payload.data, payload.layout, {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+    })
+  } catch (error) {
+    if (resultPlotKey.value !== requestKey) return
+    resultPlotError.value = error?.response?.data?.detail || error?.response?.data?.message || error?.message || 'Failed to load spectrum plot'
+    if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
+  } finally {
+    if (resultPlotKey.value === requestKey) resultPlotLoading.value = false
+  }
+}
+
+watch(
+  () => [paths.taskId, resultCurrentSpectrum.value?.title],
+  () => {
+    renderResultPlot()
+  },
+  { immediate: true, flush: 'post' }
+)
+
+const stepItems = computed(() => [
+  { key: STEP_UPLOAD, label: 'Upload' },
+  { key: STEP_FILES, label: 'Files' },
+  { key: STEP_CANDIDATES, label: 'Candidates' },
+  { key: STEP_RESULTS, label: 'Results' },
+])
+
+const isStepAccessible = (step) => {
+  if (step === STEP_UPLOAD) return true
+  if (step === STEP_FILES) return uploadDone.value
+  if (step === STEP_CANDIDATES) return uploadDone.value
+  if (step === STEP_RESULTS) return retrieveDone.value
+  return false
+}
+
+const isStepCompleted = (step) => {
+  if (step === STEP_UPLOAD) return uploadDone.value
+  if (step === STEP_FILES) return uploadDone.value
+  if (step === STEP_CANDIDATES) return chooseDone.value
+  if (step === STEP_RESULTS) return retrieveDone.value
+  return false
+}
+
+const canDownloadStatas = computed(() => Boolean(paths.taskId && retrieveDone.value))
+const canSubmitUpload = computed(() => !['finished', 'processing'].includes(uploadState.value) && !loading.upload)
 const canClearUpload = computed(() => Boolean(
-  uploadForm.mgfFile ||
-  uploadForm.jsonFile ||
+  uploadForm.mgfFiles.length ||
+  uploadForm.jsonFiles.length ||
   chooseForm.customFile ||
   paths.taskId ||
   statasData.value ||
+  batchSummary.value ||
   chooseData.value ||
   retrieveSummary.value ||
   retrieveJob.value ||
-  spectraList.value.length ||
-  smilesCards.value.length
+  spectraList.value.length
 ))
-const pagedSpectra = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return spectraList.value.slice(start, start + pageSize)
+const uploadButtonText = computed(() => {
+  if (uploadState.value === 'finished') return 'Finished'
+  if (uploadState.value === 'processing') return 'Processing...'
+  return 'Submit'
 })
 
-const smilesSlots = computed(() => {
-  const cards = smilesCards.value.slice(0, 10)
-  const slots = [...cards]
-  while (slots.length < 10) {
-    slots.push({
-      index: slots.length + 1,
-      smiles: '',
-      image_url: '',
-      image_src: '',
-      status: 'empty',
-    })
-  }
-  return slots
-})
-
-function mapStatasToList(statas) {
-  const list =
-    statas?.['碎裂树文件统计']?.['有效碎裂树根节点信息'] || []
-  spectraList.value = list.map((item) => ({
-    title: item.title,
-    mz: item.mz,
-    adduct: item.adduct,
-    result: item['检索结果'] || null,
-  }))
-  currentPage.value = 1
-  collapseActive.value = []
-  statasData.value = statas || null
+const setGlobalError = (msg) => {
+  globalError.value = msg || ''
+  if (msg) ElMessage.error(msg)
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const clearGlobalError = () => {
+  globalError.value = ''
+}
+
+const getStepClass = (step) => {
+  const isCurrent = currentStep.value === step
+  const done = isStepCompleted(step)
+  return {
+    current: isCurrent,
+    done,
+    locked: !isStepAccessible(step),
+  }
+}
+
+const gotoStep = (step) => {
+  if (currentStep.value === step) return
+  if (!isStepAccessible(step)) {
+    setGlobalError('请先完成前序步骤后再进入该板块')
+    return
+  }
+  currentStep.value = step
+}
+
+const scrollActiveCollapseToTop = (collapseRef) => {
+  nextTick(() => {
+    const root = collapseRef?.value?.$el || collapseRef?.value
+    const activeItem = root?.querySelector('.el-collapse-item.is-active')
+    activeItem?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  })
+}
+
+const pickResultDefaults = () => {
+  resultCurrentPage.value = 1
+  resultActiveFile.value = fileCards.value[0]?.fileKey || ''
+  resultActiveTitle.value = ''
+}
+
+const handleSpectrumSelect = (title) => {
+  resultActiveTitle.value = title || ''
+}
+
+const onResultFileChange = (fileKey) => {
+  resultActiveFile.value = fileKey || ''
+  resultActiveTitle.value = ''
+  scrollActiveCollapseToTop(resultCollapseRef)
+}
+
+const onSummaryCollapseChange = (name) => {
+  collapseActiveFile.value = name || ''
+}
+
+async function mapStatasToList(statas) {
+  const cards = await buildBatchFileCards({
+    taskStatas: statas,
+    resultType: 'normal',
+    fetchStatasByPath: (path) => fetchStatas({ path }),
+  })
+
+  fileCards.value = cards
+  spectraList.value = flattenFileCardSpectra(cards)
+  currentPage.value = 1
+  collapseActiveFile.value = cards[0]?.fileKey || ''
+  statasData.value = statas || null
+  pickResultDefaults()
+}
+
+const saveHistory = async (payload) => {
+  if (!paths.taskId) return
+  try {
+    await updateHistoryRecord({ task_id: paths.taskId, ...payload })
+  } catch (error) {
+    console.error('history update failed', error)
+  }
+}
 
 const copyTaskId = async () => {
   if (!paths.taskId) return
@@ -149,19 +296,7 @@ const copyTaskId = async () => {
     await navigator.clipboard.writeText(paths.taskId)
     ElMessage.success('Task ID copied')
   } catch (error) {
-    ElMessage.error('Copy failed')
-  }
-}
-
-const saveHistory = async (payload) => {
-  if (!paths.taskId) return
-  try {
-    await updateHistoryRecord({
-      task_id: paths.taskId,
-      ...payload,
-    })
-  } catch (error) {
-    console.error('history update failed', error)
+    setGlobalError('Copy failed')
   }
 }
 
@@ -192,16 +327,15 @@ onMounted(() => {
   const savedUpload = getSessionByUser(sessionKeys.upload, getSessionUsername())
   if (savedUpload?.files) {
     paths.taskId = savedUpload.task_id || savedUpload.taskId || ''
-    paths.statasPath = savedUpload.files.statasPath || ''
-    paths.fragtreesPath = savedUpload.files.fragtreesPath || ''
-    paths.spectraPath = savedUpload.files.spectraPath || ''
+    paths.statasPath = savedUpload.files.statasPath || savedUpload.files.statas_path || ''
+    paths.fragtreesPath = savedUpload.files.fragtreesPath || savedUpload.files.fragtrees_path || ''
+    paths.spectraPath = savedUpload.files.spectraPath || savedUpload.files.spectra_path || ''
+    batchSummary.value = savedUpload.batch_summary || null
     uploadState.value = paths.taskId ? 'finished' : 'idle'
   }
 
   const savedChoose = getSessionByUser(sessionKeys.choose, getSessionUsername())
-  if (savedChoose?.data) {
-    chooseData.value = savedChoose.data
-  }
+  if (savedChoose?.data) chooseData.value = savedChoose.data
 
   const savedRetrieve = getSessionByUser(sessionKeys.retrieve, getSessionUsername())
   if (savedRetrieve) {
@@ -210,31 +344,26 @@ onMounted(() => {
       job_id: savedRetrieve?.job_id || '',
       status: savedRetrieve?.status || '',
       error: savedRetrieve?.error || null,
+      failed_count: Number(savedRetrieve?.failed_count || 0),
+      total_count: Number(savedRetrieve?.total_count || 0),
     }
   }
 
   loadCandidateDatabases()
 })
 
-onActivated(() => {
-  setRightSidebarWidth(smilesSidebarWidth.value)
-})
-
-onDeactivated(() => {
-  setRightSidebarWidth(0)
-})
-
 onBeforeUnmount(() => {
   stopRetrievePolling = true
-  setRightSidebarWidth(0)
+  stopUploadPolling = true
+  if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
 })
 
-const onMgfChange = (file) => {
-  uploadForm.mgfFile = file?.raw || null
+const onMgfChange = (_file, fileList) => {
+  uploadForm.mgfFiles = (fileList || []).map((item) => item.raw).filter(Boolean)
 }
 
-const onJsonChange = (file) => {
-  uploadForm.jsonFile = file?.raw || null
+const onJsonChange = (_file, fileList) => {
+  uploadForm.jsonFiles = (fileList || []).map((item) => item.raw).filter(Boolean)
 }
 
 const onCustomChange = (file) => {
@@ -242,84 +371,132 @@ const onCustomChange = (file) => {
 }
 
 const handleHealthCheck = async () => {
+  clearGlobalError()
   loading.health = true
   try {
     await checkHealth()
     ElMessage.success('Backend service is healthy')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || 'Backend service unavailable')
+    setGlobalError(error?.response?.data?.message || 'Backend service unavailable')
   } finally {
     loading.health = false
   }
 }
 
+const pollUploadResult = async (taskId) => {
+  const startedAt = Date.now()
+  while (!stopUploadPolling) {
+    if (Date.now() - startedAt > UPLOAD_POLL_TIMEOUT_MS) throw new Error('Upload task timed out, please retry later')
+
+    const statusResp = await getUploadFilesStatus(taskId)
+    const statusData = statusResp?.data?.data
+    if (!statusData) throw new Error('Failed to read upload task status')
+
+    const progress = statusData.progress || {}
+    if (progress.total) uploadProgress.value = Math.round(((progress.done || 0) / progress.total) * 100)
+
+    if (['success', 'partial_failed'].includes(statusData.status)) {
+      const files = statusData.files || {}
+      paths.statasPath = files.statas_path || ''
+      paths.fragtreesPath = files.fragtrees_path || ''
+      paths.spectraPath = files.spectra_path || ''
+      batchSummary.value = statusData.batch_summary || null
+      if (statusData.statas) await mapStatasToList(statusData.statas)
+
+      setSessionByUser(sessionKeys.upload, { task_id: paths.taskId, files: { ...paths }, batch_summary: batchSummary.value }, getSessionUsername())
+      uploadState.value = 'finished'
+      return statusData
+    }
+
+    if (statusData.status === 'failed') {
+      const err = Array.isArray(statusData.errors) && statusData.errors.length ? statusData.errors[0]?.error : 'Sirius batch failed'
+      throw new Error(err)
+    }
+
+    uploadState.value = 'processing'
+    await sleep(UPLOAD_POLL_INTERVAL_MS)
+  }
+}
+
 const handleUploadSubmit = async () => {
+  clearGlobalError()
   if (loading.upload) return
   if (uploadState.value === 'finished') {
     ElMessage.warning('Upload already finished, please click Clear to start a new task')
     return
   }
+  if (!uploadForm.mgfFiles.length) return setGlobalError('Please upload at least one mgf/txt file')
 
-  if (!uploadForm.mgfFile || !uploadForm.jsonFile) {
-    ElMessage.error('Please upload mgf/txt and json files')
-    return
-  }
+  const totalCount = uploadForm.mgfFiles.length + uploadForm.jsonFiles.length
+  if (totalCount > 50) return setGlobalError('Total upload files cannot exceed 50')
 
-  const limit = 100 * 1024 * 1024
-  if (uploadForm.mgfFile.size > limit || uploadForm.jsonFile.size > limit) {
-    ElMessage.error('File exceeds 100MB')
-    return
-  }
+  const limit = 10 * 1024 * 1024
+  const hasOversize = [...uploadForm.mgfFiles, ...uploadForm.jsonFiles].some((item) => item.size > limit)
+  if (hasOversize) return setGlobalError('Single file exceeds 10MB')
 
   const formData = new FormData()
-  formData.append('file_mgf', uploadForm.mgfFile)
-  formData.append('file_json', uploadForm.jsonFile)
+  uploadForm.mgfFiles.forEach((file) => formData.append('files_mgf', file))
+  uploadForm.jsonFiles.forEach((file) => formData.append('files_json', file))
 
   uploadProgress.value = 0
   uploadState.value = 'submitting'
   loading.upload = true
+  stopUploadPolling = false
 
   try {
     const resp = await uploadFiles(formData, (evt) => {
-      if (evt.total) {
-        uploadProgress.value = Math.round((evt.loaded / evt.total) * 100)
-      }
+      if (evt.total) uploadProgress.value = Math.round((evt.loaded / evt.total) * 100)
     })
     const data = resp?.data?.data
-    if (!data?.task_id || !data?.files) {
-      throw new Error('Upload response missing task info')
-    }
+    if (!data?.task_id) throw new Error('Upload response missing task_id')
 
     paths.taskId = data.task_id
-    paths.statasPath = data.files.statas_path
-    paths.fragtreesPath = data.files.fragtrees_path
-    paths.spectraPath = data.files.spectra_path
-
     chooseData.value = null
     retrieveSummary.value = null
     retrieveJob.value = null
-    setSessionByUser(sessionKeys.upload, { task_id: paths.taskId, files: { ...paths } }, getSessionUsername())
     removeSessionByUser(sessionKeys.choose, getSessionUsername())
     removeSessionByUser(sessionKeys.retrieve, getSessionUsername())
 
-    if (data.statas) {
-      mapStatasToList(data.statas)
+    const isAsyncMgfOnly = data.upload_mode === 'mgf_only_async' || data.status === 'processing'
+    if (isAsyncMgfOnly) {
+      paths.statasPath = ''
+      paths.fragtreesPath = ''
+      paths.spectraPath = ''
+      batchSummary.value = data.batch_summary || null
+      setSessionByUser(sessionKeys.upload, { task_id: paths.taskId, files: { ...paths }, batch_summary: batchSummary.value }, getSessionUsername())
+
+      uploadState.value = 'processing'
+      ElMessage.success('MGF uploaded, Sirius queue started')
+      const finalStatus = await pollUploadResult(paths.taskId)
+      if (finalStatus?.status === 'partial_failed') ElMessage.warning('Upload completed with partial failures')
+      else ElMessage.success('Batch upload completed')
+    } else {
+      if (!data?.files) throw new Error('Upload response missing output files')
+      paths.statasPath = data.files.statas_path
+      paths.fragtreesPath = data.files.fragtrees_path
+      paths.spectraPath = data.files.spectra_path
+      batchSummary.value = data.batch_summary || null
+
+      setSessionByUser(sessionKeys.upload, { task_id: paths.taskId, files: { ...paths }, batch_summary: batchSummary.value }, getSessionUsername())
+      if (data.statas) await mapStatasToList(data.statas)
+      uploadState.value = 'finished'
+      ElMessage.success('Batch upload completed')
     }
 
-    uploadState.value = 'finished'
-    ElMessage.success('Upload completed')
+    currentStep.value = STEP_FILES
   } catch (error) {
     uploadState.value = 'idle'
-    const msg = error?.response?.data?.message || error?.message || 'Upload failed'
-    ElMessage.error(msg)
+    setGlobalError(error?.response?.data?.message || error?.message || 'Upload failed')
   } finally {
     loading.upload = false
   }
 }
 
 const handleClearUpload = () => {
-  uploadForm.mgfFile = null
-  uploadForm.jsonFile = null
+  clearGlobalError()
+  stopUploadPolling = true
+  uploadForm.mgfFiles = []
+  uploadForm.jsonFiles = []
   chooseForm.searchType = 'pubchem'
   chooseForm.ionMode = 'pos'
   chooseForm.ppmRange = 10
@@ -335,17 +512,22 @@ const handleClearUpload = () => {
   retrieveSummary.value = null
   retrieveJob.value = null
   statasData.value = null
+  batchSummary.value = null
   spectraList.value = []
-  collapseActive.value = []
+  fileCards.value = []
+  collapseActiveFile.value = ''
+  resultActiveFile.value = ''
+  resultActiveTitle.value = ''
+  resultPlotLoading.value = false
+  resultPlotError.value = ''
+  resultPlotKey.value = ''
+  if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
   currentPage.value = 1
-
-  titleQuery.value = ''
-  selectedSpectrumTitle.value = ''
-  smilesSidebarOpen.value = false
-  smilesCards.value = []
+  resultCurrentPage.value = 1
 
   uploadProgress.value = 0
   uploadState.value = 'idle'
+  currentStep.value = STEP_UPLOAD
 
   mgfUploadRef.value?.clearFiles()
   jsonUploadRef.value?.clearFiles()
@@ -359,42 +541,20 @@ const handleClearUpload = () => {
 }
 
 const handleCandidatesSubmit = async () => {
-  if (!paths.taskId) {
-    ElMessage.error('Please upload files first')
-    return
-  }
-
-  if (!['pubchem', 'custom'].includes(chooseForm.searchType)) {
-    ElMessage.error('Candidate pool type is invalid')
-    return
-  }
-
-  if (!['pos', 'neg'].includes(chooseForm.ionMode)) {
-    ElMessage.error('Ion mode is invalid')
-    return
-  }
+  clearGlobalError()
+  if (!paths.taskId) return setGlobalError('Please upload files first')
+  if (!['pubchem', 'custom'].includes(chooseForm.searchType)) return setGlobalError('Candidate pool type is invalid')
+  if (!['pos', 'neg'].includes(chooseForm.ionMode)) return setGlobalError('Ion mode is invalid')
 
   if (chooseForm.searchType === 'pubchem') {
-    if (!chooseForm.ppmRange || Number(chooseForm.ppmRange) <= 0) {
-      ElMessage.error('PPM range must be greater than 0')
-      return
-    }
-    if (!Array.isArray(chooseForm.databases) || chooseForm.databases.length === 0) {
-      ElMessage.error('Please select at least one database')
-      return
-    }
+    if (!chooseForm.ppmRange || Number(chooseForm.ppmRange) <= 0) return setGlobalError('PPM range must be greater than 0')
+    if (!Array.isArray(chooseForm.databases) || chooseForm.databases.length === 0) return setGlobalError('Please select at least one database')
   }
 
   if (chooseForm.searchType === 'custom') {
-    if (!chooseForm.customFile) {
-      ElMessage.error('Please upload a custom library txt file')
-      return
-    }
+    if (!chooseForm.customFile) return setGlobalError('Please upload a custom library txt file')
     const ext = (chooseForm.customFile.name || '').toLowerCase()
-    if (!ext.endsWith('.txt')) {
-      ElMessage.error('Custom library only supports txt files')
-      return
-    }
+    if (!ext.endsWith('.txt')) return setGlobalError('Custom library only supports txt files')
   }
 
   const formData = new FormData()
@@ -404,29 +564,20 @@ const handleCandidatesSubmit = async () => {
     formData.append('ppm_range', chooseForm.ppmRange)
     formData.append('databases', JSON.stringify(chooseForm.databases || []))
   }
-  if (chooseForm.searchType === 'custom') {
-    formData.append('custom_lib_file', chooseForm.customFile)
-  }
+  if (chooseForm.searchType === 'custom') formData.append('custom_lib_file', chooseForm.customFile)
   formData.append('task_id', paths.taskId)
 
   loading.choose = true
   try {
     const resp = await chooseCandidates(formData)
     chooseData.value = resp?.data?.data
-    if (!chooseData.value) {
-      throw new Error('Candidate pool response is empty')
-    }
-    if (Array.isArray(chooseData.value.available_databases)) {
-      availableDatabases.value = chooseData.value.available_databases
-    }
-    if (Array.isArray(chooseData.value.databases) && chooseData.value.databases.length) {
-      chooseForm.databases = [...chooseData.value.databases]
-    }
+    if (!chooseData.value) throw new Error('Candidate pool response is empty')
+    if (Array.isArray(chooseData.value.available_databases)) availableDatabases.value = chooseData.value.available_databases
+    if (Array.isArray(chooseData.value.databases) && chooseData.value.databases.length) chooseForm.databases = [...chooseData.value.databases]
     setSessionByUser(sessionKeys.choose, { data: chooseData.value }, getSessionUsername())
     ElMessage.success('Candidate pool selection completed')
   } catch (error) {
-    const msg = error?.response?.data?.message || error?.message || 'Candidate pool selection failed'
-    ElMessage.error(msg)
+    setGlobalError(error?.response?.data?.message || error?.message || 'Candidate pool selection failed')
   } finally {
     loading.choose = false
   }
@@ -438,12 +589,9 @@ const refreshStatas = async () => {
   try {
     const resp = await fetchStatas({ taskId: paths.taskId, path: paths.statasPath })
     const data = resp?.data?.data
-    if (data) {
-      mapStatasToList(data)
-    }
+    if (data) await mapStatasToList(data)
   } catch (error) {
-    const msg = error?.response?.data?.message || error?.message || 'Failed to read statas'
-    ElMessage.error(msg)
+    setGlobalError(error?.response?.data?.message || error?.message || 'Failed to read statas')
   } finally {
     loading.statas = false
   }
@@ -451,52 +599,38 @@ const refreshStatas = async () => {
 
 const pollRetrieveResult = async (jobId) => {
   const startedAt = Date.now()
-
   while (!stopRetrievePolling) {
-    if (Date.now() - startedAt > RETRIEVE_POLL_TIMEOUT_MS) {
-      throw new Error('Search task timed out, please retry later')
-    }
+    if (Date.now() - startedAt > RETRIEVE_POLL_TIMEOUT_MS) throw new Error('Search task timed out, please retry later')
 
     const statusResp = await getRetrieveStatus(jobId)
     const statusData = statusResp?.data?.data
-    if (!statusData) {
-      throw new Error('Failed to read search status')
-    }
+    if (!statusData) throw new Error('Failed to read search status')
 
     retrieveJob.value = {
       job_id: statusData.job_id,
       status: statusData.status,
       error: statusData.error || null,
+      failed_count: Number(statusData.failed_count || 0),
+      total_count: Number(statusData.total_count || 0),
     }
 
-    if (statusData.status === 'success') {
+    if (['success', 'partial_failed'].includes(statusData.status)) {
       retrieveSummary.value = statusData.result || null
-      setSessionByUser(
-        sessionKeys.retrieve,
-        {
-          job_id: statusData.job_id,
-          status: statusData.status,
-          result: retrieveSummary.value,
-          error: null,
-        },
-        getSessionUsername(),
-      )
-      await saveHistory({ normal_status: 'success' })
+      setSessionByUser(sessionKeys.retrieve, {
+        job_id: statusData.job_id,
+        status: statusData.status,
+        result: retrieveSummary.value,
+        error: null,
+        failed_count: Number(statusData.failed_count || 0),
+        total_count: Number(statusData.total_count || 0),
+      }, getSessionUsername())
+      await saveHistory({ normal_status: statusData.status === 'partial_failed' ? 'failed' : 'success' })
       return
     }
 
     if (statusData.status === 'failed') {
       const failedMsg = statusData.error || 'Search task failed'
-      setSessionByUser(
-        sessionKeys.retrieve,
-        {
-          job_id: statusData.job_id,
-          status: statusData.status,
-          result: null,
-          error: failedMsg,
-        },
-        getSessionUsername(),
-      )
+      setSessionByUser(sessionKeys.retrieve, { job_id: statusData.job_id, status: statusData.status, result: null, error: failedMsg }, getSessionUsername())
       await saveHistory({ normal_status: 'failed' })
       throw new Error(failedMsg)
     }
@@ -506,10 +640,8 @@ const pollRetrieveResult = async (jobId) => {
 }
 
 const handleRetrieve = async () => {
-  if (!chooseData.value) {
-    ElMessage.error('Please complete candidate pool selection first')
-    return
-  }
+  clearGlobalError()
+  if (!chooseData.value) return setGlobalError('Please complete candidate pool selection first')
 
   stopRetrievePolling = false
   loading.retrieve = true
@@ -519,142 +651,26 @@ const handleRetrieve = async () => {
     const resp = await runRetrieve(chooseData.value)
     const submitData = resp?.data?.data
     const jobId = submitData?.job_id
+    if (!jobId) throw new Error('Search submission failed: missing job_id')
 
-    if (!jobId) {
-      throw new Error('Search submission failed: missing job_id')
-    }
-
-    retrieveJob.value = {
-      job_id: jobId,
-      status: submitData?.status || 'running',
-      error: null,
-    }
-    setSessionByUser(
-      sessionKeys.retrieve,
-      {
-        job_id: jobId,
-        status: retrieveJob.value.status,
-        result: null,
-        error: null,
-      },
-      getSessionUsername(),
-    )
+    retrieveJob.value = { job_id: jobId, status: submitData?.status || 'running', error: null }
+    setSessionByUser(sessionKeys.retrieve, { job_id: jobId, status: retrieveJob.value.status, result: null, error: null, failed_count: 0, total_count: 0 }, getSessionUsername())
 
     ElMessage.success('Search task submitted and running')
     await pollRetrieveResult(jobId)
-    ElMessage.success('Search completed')
-
     await refreshStatas()
+    currentStep.value = STEP_RESULTS
+    ElMessage.success('Search completed')
   } catch (error) {
-    const msg = error?.response?.data?.message || error?.message || 'Search failed'
-    ElMessage.error(msg)
+    setGlobalError(error?.response?.data?.message || error?.message || 'Search failed')
   } finally {
     loading.retrieve = false
   }
 }
 
-const expandAll = () => {
-  if (collapseActive.value.length === spectraList.value.length) {
-    collapseActive.value = []
-  } else {
-    collapseActive.value = spectraList.value.map((item) => item.title)
-  }
-}
-
-const getResultTopEntries = (result) => {
-  const rows = Array.isArray(result?.result_top100) ? result.result_top100 : []
-  if (rows.length) return rows
-  const smilesList = result?.top100 || []
-  const scores = result?.top100_score || []
-  return smilesList.map((smiles, idx) => ({
-    rank: idx + 1,
-    score: scores[idx] ?? '',
-    smiles,
-  }))
-}
-
-const top10Rows = (result) => {
-  const rows = getResultTopEntries(result).slice(0, 10)
-  return rows.map((row) => ({
-    smiles: row.smiles || '',
-    score: row.score ?? '',
-  }))
-}
-
-const findSpectrumByTitle = (title) => {
-  const keyword = (title || '').trim()
-  if (!keyword) return null
-  return spectraList.value.find((item) => (item.title || '').trim() === keyword) || null
-}
-
-const handleGenerateSmilesImages = async () => {
-  if (!spectraList.value.length) {
-    ElMessage.error('No spectra available to search')
-    return
-  }
-
-  const keyword = (titleQuery.value || '').trim()
-  if (!keyword) {
-    ElMessage.error('Please enter spectrum title')
-    return
-  }
-
-  const target = findSpectrumByTitle(keyword)
-  if (!target) {
-    ElMessage.error('Title not found, please use a valid title from results')
-    return
-  }
-
-  const top10Smiles = getResultTopEntries(target.result).slice(0, 10).map((item) => item.smiles).filter(Boolean)
-  if (!top10Smiles.length) {
-    ElMessage.error('This spectrum has no top10 smiles results')
-    return
-  }
-
-  loading.smiles = true
-  try {
-    const resp = await visualizeSmiles(top10Smiles)
-    const results = resp?.data?.data?.results || []
-    const mapped = top10Smiles.map((smiles, idx) => {
-      const row = results[idx] || {}
-      const status = row.status || 'failed'
-      const imageUrl = row.image_url || ''
-      return {
-        index: idx + 1,
-        smiles,
-        image_url: imageUrl,
-        image_src: status === 'ready' ? toImageUrl(imageUrl) : '',
-        status,
-      }
-    })
-
-    smilesCards.value = mapped
-    selectedSpectrumTitle.value = target.title
-    smilesSidebarOpen.value = true
-
-    const failedCount = mapped.filter((item) => item.status !== 'ready').length
-    if (failedCount > 0) {
-      ElMessage.warning(`Generation finished, ${failedCount} failed`) 
-    } else {
-      ElMessage.success('SMILES images generated')
-    }
-  } catch (error) {
-    const msg = error?.response?.data?.message || error?.message || 'Failed to generate SMILES images'
-    ElMessage.error(msg)
-  } finally {
-    loading.smiles = false
-  }
-}
-
-const toggleSmilesSidebar = () => {
-  smilesSidebarOpen.value = !smilesSidebarOpen.value
-}
-
 const handleDownloadStatas = async () => {
-  if (!canDownloadStatas.value) {
-    ElMessage.error('Please finish the search first')
-    return
-  }
+  clearGlobalError()
+  if (!canDownloadStatas.value) return setGlobalError('Please finish the search first')
 
   try {
     const resp = await downloadTaskFile({ taskId: paths.taskId, filename: 'statas.json' })
@@ -669,58 +685,61 @@ const handleDownloadStatas = async () => {
     window.URL.revokeObjectURL(url)
     ElMessage.success('Result download started')
   } catch (error) {
-    const msg = error?.response?.data?.message || error?.message || 'Download failed'
-    ElMessage.error(msg)
+    setGlobalError(error?.response?.data?.message || error?.message || 'Download failed')
   }
 }
 </script>
 
 <template>
   <div class="page">
+    <el-alert
+      v-if="globalError"
+      class="fixed-error"
+      type="error"
+      :closable="true"
+      :title="globalError"
+      @close="clearGlobalError"
+      show-icon
+    />
+
+    <div class="flow-nav-wrap">
+      <div class="flow-line"></div>
+      <button
+        v-for="step in stepItems"
+        :key="step.key"
+        type="button"
+        class="flow-step"
+        :class="getStepClass(step.key)"
+        :disabled="!isStepAccessible(step.key) && currentStep !== step.key"
+        @click="gotoStep(step.key)"
+      >
+        <span class="dot"><span v-if="currentStep === step.key" class="dot-inner"></span></span>
+        <span class="label">{{ step.label }}</span>
+      </button>
+    </div>
+
     <el-card class="big-card">
-      <section class="module-section">
+      <section v-show="currentStep === STEP_UPLOAD" class="module-section">
         <h3 class="module-title">HEALTH CHECK</h3>
         <div class="module-body">
           <el-button class="btn-unified" :loading="loading.health" @click="handleHealthCheck">Check backend status</el-button>
         </div>
-      </section>
 
-      <el-divider class="module-divider" />
+        <el-divider class="module-divider" />
 
-      <section class="module-section">
         <h3 class="module-title">FILE UPLOAD</h3>
         <div class="module-body">
           <div class="upload-row">
             <div class="upload-block">
               <p class="label">mgf/txt file</p>
-              <el-upload
-                ref="mgfUploadRef"
-                class="uploader"
-                drag
-                action="#"
-                :auto-upload="false"
-                :show-file-list="true"
-                :limit="1"
-                :on-change="onMgfChange"
-                accept=".mgf,.txt"
-              >
-                <div class="el-upload__text">Drag or click to select mgf/txt</div>
+              <el-upload ref="mgfUploadRef" class="uploader" drag action="#" :auto-upload="false" :show-file-list="true" :limit="50" multiple :on-change="onMgfChange" accept=".mgf,.txt">
+                <div class="el-upload__text">Drag or click to select mgf/txt (batch)</div>
               </el-upload>
             </div>
             <div class="upload-block">
-              <p class="label">json file</p>
-              <el-upload
-                ref="jsonUploadRef"
-                class="uploader"
-                drag
-                action="#"
-                :auto-upload="false"
-                :show-file-list="true"
-                :limit="1"
-                :on-change="onJsonChange"
-                accept=".json"
-              >
-                <div class="el-upload__text">Drag or click to select json</div>
+              <p class="upload-label">json file</p>
+              <el-upload ref="jsonUploadRef" class="uploader" drag action="#" :auto-upload="false" :show-file-list="true" :limit="50" multiple :on-change="onJsonChange" accept=".json">
+                <div class="el-upload__text">Drag or click to select json (batch)</div>
               </el-upload>
             </div>
           </div>
@@ -731,46 +750,43 @@ const handleDownloadStatas = async () => {
           </div>
           <div v-if="paths.taskId" class="hint">
             Task ID: <strong>{{ paths.taskId }}</strong>
-            <el-button size="small" text :disabled="!canCopyTaskId" @click="copyTaskId">Copy</el-button>
+            <el-button size="small" text @click="copyTaskId">Copy</el-button>
+          </div>
+          <div v-if="uploadState === 'processing'" class="hint">Sirius queue is generating json files... {{ uploadProgress }}%</div>
+          <div v-if="batchSummary" class="hint">
+            Paired: <strong>{{ batchSummary.paired_count || 0 }}</strong>
+            <span style="margin-left: 8px">Unmatched mgf: {{ (batchSummary.unmatched_mgf || []).length }}</span>
+            <span style="margin-left: 8px">Unmatched json: {{ (batchSummary.unmatched_json || []).length }}</span>
           </div>
         </div>
       </section>
 
-      <section v-if="statasData" class="module-section">
-        <el-divider class="module-divider" />
-        <h3 class="module-title">SPECTRA SUMMARY</h3>
+      <section v-show="currentStep === STEP_FILES" class="module-section">
+        <h3 class="module-title">FILES</h3>
         <div class="module-body">
           <el-descriptions border :column="1" class="read-info-desc">
             <el-descriptions-item label="Valid spectra count">
-              <span class="metric">{{ effectiveCount }}</span>
+              <span class="metric">{{ spectraList.length }}</span>
             </el-descriptions-item>
           </el-descriptions>
-          <el-table
-            :data="pagedSpectra"
-            stripe
-            highlight-current-row
-            style="width: 100%; margin-top: 12px"
-            :empty-text="'No spectra data'"
-          >
-            <el-table-column prop="title" label="Spectrum title" align="center" />
-            <el-table-column prop="mz" label="Precursor m/z" align="center" />
-            <el-table-column prop="adduct" label="Adduct" align="center" />
-          </el-table>
-          <div v-if="effectiveCount > pageSize" class="pagination">
-            <el-pagination
-              background
-              layout="prev, pager, next"
-              :total="effectiveCount"
-              :page-size="pageSize"
-              v-model:current-page="currentPage"
-            />
+          <el-collapse v-model="collapseActiveFile" accordion class="collapse" @change="onSummaryCollapseChange">
+            <el-collapse-item v-for="item in pagedFileCards" :key="item.fileKey" :name="item.fileKey">
+              <template #title><strong>{{ item.fileName }}</strong></template>
+              <el-table :data="item.spectra" size="small" style="width: 100%" :header-cell-style="{ background: '#f0f9ff', fontWeight: '600' }">
+                <el-table-column prop="title" label="Title" min-width="240" show-overflow-tooltip />
+                <el-table-column prop="mz" label="Pepmass" width="140" />
+                <el-table-column prop="adduct" label="Adduct" min-width="140" />
+                <el-table-column prop="peaks" label="Peaks" width="100" />
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
+          <div v-if="fileCount > pageSize" class="pagination">
+            <el-pagination background layout="prev, pager, next" :total="fileCount" :page-size="pageSize" v-model:current-page="currentPage" />
           </div>
         </div>
       </section>
 
-      <el-divider class="module-divider" />
-
-      <section class="module-section">
+      <section v-show="currentStep === STEP_CANDIDATES" class="module-section">
         <h3 class="module-title">CANDIDATE POOL</h3>
         <div class="module-body">
           <div class="form-row">
@@ -782,14 +798,7 @@ const handleDownloadStatas = async () => {
               <el-option label="Positive (pos)" value="pos" />
               <el-option label="Negative (neg)" value="neg" />
             </el-select>
-            <el-input-number
-              v-if="chooseForm.searchType === 'pubchem'"
-              v-model="chooseForm.ppmRange"
-              :min="0"
-              :step="1"
-              placeholder="ppm range (>0)"
-              style="width: 200px"
-            />
+            <el-input-number v-if="chooseForm.searchType === 'pubchem'" v-model="chooseForm.ppmRange" :min="0" :step="1" placeholder="ppm range (>0)" style="width: 200px" />
             <el-select
               v-if="chooseForm.searchType === 'pubchem'"
               v-model="chooseForm.databases"
@@ -799,355 +808,208 @@ const handleDownloadStatas = async () => {
               placeholder="Select databases"
               style="width: 320px"
             >
-              <el-option
-                v-for="db in availableDatabases"
-                :key="db"
-                :label="db"
-                :value="db"
-              />
+              <el-option v-for="db in availableDatabases" :key="db" :label="db" :value="db" />
             </el-select>
-            <el-upload
-              v-if="chooseForm.searchType === 'custom'"
-              ref="customUploadRef"
-              class="uploader"
-              action="#"
-              :auto-upload="false"
-              :show-file-list="true"
-              :limit="1"
-              :on-change="onCustomChange"
-              accept=".txt"
-            >
+            <el-upload v-if="chooseForm.searchType === 'custom'" ref="customUploadRef" class="uploader" action="#" :auto-upload="false" :show-file-list="true" :limit="1" :on-change="onCustomChange" accept=".txt">
               <el-button>Select custom library (txt)</el-button>
             </el-upload>
           </div>
           <div class="actions">
             <el-button class="btn-unified" :loading="loading.choose" @click="handleCandidatesSubmit">Confirm pool</el-button>
             <el-button class="btn-unified" :loading="loading.retrieve" @click="handleRetrieve">Run search</el-button>
+            <el-button type="warning" :disabled="!canDownloadStatas" @click="handleDownloadStatas">Export results</el-button>
           </div>
           <div v-if="retrieveJob" class="hint">
             Status: {{ retrieveJob.status }}
+            <span v-if="retrieveJob.status === 'partial_failed'">| Failed/Total: {{ retrieveJob.failed_count || 0 }}/{{ retrieveJob.total_count || 0 }}</span>
             <span v-if="retrieveJob.error">| Error: {{ retrieveJob.error }}</span>
-          </div>
-          <div class="actions download-actions">
-            <el-button type="warning" :disabled="!canDownloadStatas" @click="handleDownloadStatas">Export results</el-button>
           </div>
         </div>
       </section>
 
-      <section v-if="spectraList.length" class="module-section">
-        <el-divider class="module-divider" />
-        <h3 class="module-title">SEARCH RESULTS (TOP 10)</h3>
-        <div class="module-body">
-          <div class="result-toolbar">
-            <div class="title-search-row">
-              <el-input v-model="titleQuery" placeholder="Enter spectrum title (exact)" clearable class="title-input" />
-              <el-button type="primary" :loading="loading.smiles" @click="handleGenerateSmilesImages">Generate top10 SMILES images</el-button>
+      <section v-show="currentStep === STEP_RESULTS" class="module-section">
+        <h3 class="module-title">RESULTS CHECK</h3>
+        <div class="result-layout">
+          <aside class="result-sidebar">
+            <div class="result-sidebar-title">File list</div>
+            <div class="result-file-scroll">
+              <el-collapse ref="resultCollapseRef" v-model="resultActiveFile" accordion class="collapse result-collapse-scroll" @change="onResultFileChange">
+                <el-collapse-item v-for="file in pagedResultFiles" :key="file.fileKey" :name="file.fileKey">
+                  <template #title><strong>{{ file.fileName }}</strong></template>
+                  <div class="file-spectra-list">
+                    <button
+                      v-for="row in file.spectra"
+                      :key="`${file.fileKey}-${row.title}`"
+                      type="button"
+                      class="spectrum-btn"
+                      :class="{ active: resultActiveTitle === row.title }"
+                      @click="handleSpectrumSelect(row.title)"
+                    >
+                      {{ row.title }}
+                    </button>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
             </div>
-            <el-button size="small" @click="expandAll">{{ collapseActive.length === spectraList.length ? 'Collapse all' : 'Expand all' }}</el-button>
-          </div>
-          <el-collapse v-model="collapseActive" class="collapse">
-            <el-collapse-item v-for="item in spectraList" :key="item.title" :name="item.title">
-              <template #title>
-                <strong>Spectrum: {{ item.title }}</strong>
-              </template>
-              <div class="panel-title">{{ item.title }} - Search Results (Top 10)</div>
-              <el-table
-                v-if="item.result && top10Rows(item.result).length"
-                :data="top10Rows(item.result)"
-                size="small"
-                style="width: 100%"
-                :header-cell-style="{ background: '#f0f9ff', fontWeight: '600' }"
-              >
-                <el-table-column prop="smiles" label="SMILES" />
-                <el-table-column prop="score" label="Score" align="right">
-                  <template #default="scope">{{ scope.row.score ? Number(scope.row.score).toFixed(4) : '' }}</template>
-                </el-table-column>
-              </el-table>
-              <div v-else class="no-data">No matched results</div>
-            </el-collapse-item>
-          </el-collapse>
+            <el-pagination
+              v-if="fileCount > resultPageSize"
+              small
+              layout="prev, pager, next"
+              :total="fileCount"
+              :page-size="resultPageSize"
+              v-model:current-page="resultCurrentPage"
+              class="pager"
+            />
+          </aside>
+
+          <main class="result-content">
+            <el-empty v-if="!resultCurrentSpectrum" description="Select one spectrum from the left list" />
+            <div v-else class="result-cards-scroll">
+              <el-card class="result-panel-card" shadow="never">
+                <template #header>
+                  <div class="result-panel-header">Spectrum plot</div>
+                </template>
+                <div class="result-plot-wrapper" v-loading="resultPlotLoading">
+                  <el-alert v-if="resultPlotError" :title="resultPlotError" type="error" :closable="false" show-icon />
+                  <div ref="resultPlotRef" class="result-plot-canvas"></div>
+                </div>
+              </el-card>
+
+              <el-card class="result-panel-card" shadow="never">
+                <template #header>
+                  <div class="result-panel-header">Spectrum information</div>
+                </template>
+
+                <el-descriptions border :column="2" class="result-info-desc">
+                  <el-descriptions-item label="Title">{{ resultCurrentSpectrum?.title || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Adduct">{{ resultCurrentSpectrum?.adduct || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Precursor m/z">{{ resultCurrentSpectrum?.mz ?? '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Peaks">{{ resultCurrentSpectrum?.peaks ?? 0 }}</el-descriptions-item>
+                </el-descriptions>
+
+                <div class="normal-results-block">
+                  <div class="normal-results-title">Normal search Top100 details</div>
+                  <el-empty v-if="!normalResultEntries.length" description="No normal search results" />
+                  <el-table v-else :data="normalResultEntries" size="small" class="result-table" :header-cell-style="{ background: '#f8fafc', fontWeight: '600' }">
+                    <el-table-column prop="rank" label="Rank" width="80" />
+                    <el-table-column prop="score" label="Score" width="120" />
+                    <el-table-column prop="smiles" label="SMILES" min-width="220" show-overflow-tooltip />
+                    <el-table-column prop="formula" label="FORMULA" min-width="140" />
+                    <el-table-column prop="generic_name" label="GENERIC_NAME" min-width="180" show-overflow-tooltip />
+                    <el-table-column prop="database_name" label="DATABASE_NAME" min-width="160" show-overflow-tooltip />
+                    <el-table-column prop="database_id" label="DATABASE_ID" min-width="160" show-overflow-tooltip />
+                    <el-table-column prop="inchi_key" label="INCHI_KEY" min-width="200" show-overflow-tooltip />
+                  </el-table>
+                </div>
+              </el-card>
+            </div>
+          </main>
         </div>
       </section>
     </el-card>
-
-    <aside class="smiles-sidebar" :class="{ open: smilesSidebarOpen }" :style="smilesSidebarStyle">
-      <button class="smiles-rail" type="button" :aria-label="smilesSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'" @click="toggleSmilesSidebar">
-        {{ smilesSidebarOpen ? '>>' : '<<' }}
-      </button>
-      <div class="smiles-panel">
-        <div class="smiles-sidebar-header">
-          <div class="smiles-sidebar-title">Molecule images</div>
-          <div class="smiles-sidebar-subtitle">{{ selectedSpectrumTitle ? `title: ${selectedSpectrumTitle}` : 'No title selected' }}</div>
-        </div>
-        <div class="smiles-list">
-          <div v-for="slot in smilesSlots" :key="`smiles-slot-${slot.index}`" class="smiles-item">
-            <div class="smiles-item-title">#{{ slot.index }} {{ slot.smiles || '(empty)' }}</div>
-            <div v-if="slot.status === 'ready' && slot.image_src" class="smiles-image-wrap">
-              <img :src="slot.image_src" :alt="slot.smiles" class="smiles-image" />
-            </div>
-            <div v-else-if="slot.status === 'failed'" class="smiles-failed">×</div>
-            <div v-else class="smiles-empty">-</div>
-          </div>
-        </div>
-      </div>
-    </aside>
   </div>
 </template>
 
 <style scoped>
-.page {
-  width: 98%;
-  margin: 0 auto;
-}
-
-.big-card {
-  border-radius: 4px;
-}
-
-.module-section {
-  width: 100%;
-}
-
-.module-divider {
-  margin: 16px 0;
-}
-
-.module-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #000000;
-  letter-spacing: 0.2px;
-}
-
-.module-body {
-  margin-top: 10px;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.upload-row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.upload-block {
-  flex: 1;
-  min-width: 240px;
-}
-
-.label {
-  margin: 0 0 8px;
-  color: #606266;
-  font-size: 12px;
-}
-
-.actions {
-  margin-top: 12px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.download-actions {
-  justify-content: flex-end;
-}
-
-.hint {
-  margin-top: 12px;
-  color: #606266;
-  line-height: 1.5;
-  font-size: 12px;
-}
-
-.form-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.uploader {
-  width: 100%;
-}
-
-.metric {
-  font-size: 18px;
-  color: #409eff;
-  font-weight: 700;
-}
-
-.pagination {
-  margin-top: 12px;
-  display: flex;
-  justify-content: center;
-}
-
-.collapse {
-  margin-top: 12px;
-}
-
-.result-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.title-search-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.title-input {
-  width: 360px;
-}
-
-.panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 8px;
-}
-
-.no-data {
-  color: #909399;
-  padding: 8px 0;
-  font-size: 12px;
-}
-
-.btn-unified {
-  border-radius: 0 !important;
-  border: none !important;
-  color: #000000 !important;
-  background: #3e7ab6 !important;
-}
-
-.btn-unified:hover,
-.btn-unified:focus,
-.btn-unified:active {
-  border: none !important;
-  color: #000000 !important;
-  background: #3e7ab6 !important;
-}
-
-.smiles-sidebar {
+.page { width: 98%; margin: 0 auto; }
+.big-card { border-radius: 4px; }
+.module-section { width: 100%; }
+.module-divider { margin: 16px 0; }
+.module-title { margin: 0; font-size: 18px; font-weight: 700; color: #000; }
+.module-body { margin-top: 10px; font-size: 12px; }
+.fixed-error {
   position: fixed;
-  right: 0;
-  width: 40px;
-  background: #ffffff;
-  border-left: 1px solid #e6e6e6;
-  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.08);
-  transition: width 0.25s ease, top 0.28s ease, height 0.28s ease;
-  z-index: 1000;
-  display: flex;
-  overflow: hidden;
+  top: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  width: min(920px, calc(100vw - 40px));
 }
-
-.smiles-sidebar.open {
-  width: 420px;
+.flow-nav-wrap {
+  margin: 10px 0 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 20px 10px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  position: sticky;
+  top: 100px;
+  z-index: 900;
 }
-
-.smiles-rail {
-  width: 40px;
-  height: 100%;
+.flow-line { position: absolute; left: 12.5%; right: 12.5%; top: 26px; height: 3px; background: #2f5f8e; z-index: 0; }
+.flow-step {
+  position: relative;
+  z-index: 1;
   border: none;
-  border-right: 1px solid #ebeef5;
-  background: linear-gradient(180deg, #f2f6fc 0%, #d9e4f4 100%);
-  color: #000;
-  font-size: 22px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.smiles-panel {
-  flex: 1;
-  min-width: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
-
-.smiles-sidebar:not(.open) .smiles-panel {
-  opacity: 0;
-  transform: translateX(12px);
-  pointer-events: none;
-}
-
-.smiles-sidebar-header {
-  padding: 12px;
-  border-bottom: 1px solid #ebeef5;
-}
-
-.smiles-sidebar-title {
-  font-weight: 700;
-  color: #303133;
-}
-
-.smiles-sidebar-subtitle {
-  margin-top: 4px;
-  color: #606266;
-  font-size: 12px;
-  word-break: break-all;
-}
-
-.smiles-list {
-  padding: 0 12px;
-  overflow-y: auto;
-  height: 100%;
-}
-
-.smiles-item {
-  padding: 10px 0;
-  border-bottom: 1px solid #ebeef5;
-}
-
-.smiles-item-title {
-  color: #303133;
-  font-size: 12px;
-  line-height: 1.4;
-  margin-bottom: 8px;
-  word-break: break-all;
-}
-
-.smiles-image-wrap {
-  width: 100%;
-  background: #f8fafc;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.smiles-image {
-  width: 100%;
-  height: 160px;
-  object-fit: contain;
-  display: block;
-}
-
-.smiles-failed,
-.smiles-empty {
-  height: 160px;
-  border: 1px dashed #dcdfe6;
-  border-radius: 4px;
-  display: flex;
+.flow-step:disabled { cursor: not-allowed; }
+.dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #000;
+  background: #f56c6c;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #909399;
-  background: #fafafa;
 }
+.flow-step.done .dot { background: #67c23a; }
+.flow-step.current .dot-inner { width: 6px; height: 6px; background: #000; border-radius: 50%; }
+.label { font-size: 13px; color: #1f2937; font-weight: 600; }
 
-.smiles-failed {
-  color: #f56c6c;
-  font-size: 42px;
-  font-weight: 700;
+.upload-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.upload-block { flex: 1; min-width: 240px; }
+.upload-label { margin: 0 0 8px; color: #606266; font-size: 12px; }
+.actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.hint { margin-top: 12px; color: #606266; line-height: 1.5; font-size: 12px; }
+.form-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.metric { font-size: 18px; color: #409eff; font-weight: 700; }
+.pagination { margin-top: 12px; display: flex; justify-content: center; }
+.collapse { margin-top: 12px; }
+.btn-unified { border-radius: 0 !important; border: none !important; color: #000 !important; background: #3e7ab6 !important; }
+.btn-unified:hover, .btn-unified:focus, .btn-unified:active { border: none !important; color: #000 !important; background: #3e7ab6 !important; }
+
+.result-layout { margin-top: 10px; display: grid; grid-template-columns: 320px 1fr; gap: 12px; height: calc(100vh - 240px); min-height: 560px; }
+.result-sidebar { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 10px; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.result-sidebar-title { font-weight: 700; color: #1f2937; }
+.result-file-scroll { margin-top: 8px; flex: 1; min-height: 0; overflow: auto; }
+.result-collapse-scroll { margin-top: 0; }
+.file-spectra-list { display: flex; flex-direction: column; gap: 6px; height: calc(100vh - 430px); min-height: 180px; overflow: auto; padding-right: 2px; }
+.spectrum-btn {
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #fff;
+  color: #303133;
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.spectrum-btn:hover { border-color: #409eff; background: #f5f9ff; }
+.spectrum-btn.active { border-color: #409eff; background: #ecf5ff; }
+.pager { margin-top: 10px; justify-content: center; }
+.result-content { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 12px; height: 100%; min-height: 0; }
+.result-cards-scroll { height: 100%; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.result-panel-card { flex: 0 0 auto; border-radius: 8px; }
+.result-panel-header { font-weight: 700; color: #1f2937; }
+.result-plot-wrapper { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+.result-plot-canvas { min-height: 380px; }
+.result-info-desc { margin-bottom: 12px; }
+.normal-results-block { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+.normal-results-title { font-weight: 700; margin-bottom: 8px; }
+.result-table { width: 100%; }
+
+@media (max-width: 1100px) {
+  .result-layout { grid-template-columns: 1fr; height: auto; }
+  .result-sidebar { height: auto; }
+  .file-spectra-list { height: 220px; }
 }
 </style>

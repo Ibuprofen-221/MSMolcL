@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -12,6 +13,7 @@ from api.candidates_choose import candidates_choose_router
 from api.docs_content import docs_content_router
 from api.download_file import download_router
 from api.file_upload import file_upload_router
+from api.file_upload_status import file_upload_status_router
 from api.health import health_router
 from api.history import history_router
 from api.my_data import my_data_router
@@ -81,6 +83,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(my_data_router)
 app.include_router(file_upload_router)
+app.include_router(file_upload_status_router)
 app.include_router(candidates_choose_router)
 app.include_router(retrieve_router)
 app.include_router(history_router)
@@ -89,6 +92,26 @@ app.include_router(statas_router)
 app.include_router(spectrum_router)
 app.include_router(docs_content_router)
 app.include_router(smiles_visualization_router)
+
+frontend_dist_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+frontend_index_file = frontend_dist_dir / "index.html"
+
+if frontend_index_file.exists():
+    @app.get("/", include_in_schema=False)
+    async def serve_frontend_index():
+        return FileResponse(frontend_index_file)
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend_spa(full_path: str):
+        protected_paths = {"docs", "openapi.json", "redoc", "health"}
+        if full_path.startswith("api") or full_path.startswith("smiles_image") or full_path in protected_paths:
+            return JSONResponse(status_code=404, content=error_response(message="接口不存在", code=404))
+
+        target_file = frontend_dist_dir / full_path
+        if target_file.is_file():
+            return FileResponse(target_file)
+
+        return FileResponse(frontend_index_file)
 
 
 if __name__ == "__main__":

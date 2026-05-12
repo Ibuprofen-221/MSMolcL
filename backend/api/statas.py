@@ -17,7 +17,7 @@ def _resolve_statas_filename(result_type: str) -> str:
     if result_type == "normal":
         return "statas.json"
     if result_type == "advanced":
-        return "statas_advanced.json"
+        return "statas.json"
     raise HTTPException(status_code=400, detail="result_type 仅支持 normal/advanced")
 
 

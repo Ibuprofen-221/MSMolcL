@@ -162,7 +162,7 @@ async def candidates_choose(
             )
 
         custom_lib_file_name = custom_lib_file.filename or "custom_lib.txt"
-        set_custom_lib_cache(custom_lib_file_name, smiles_list)
+        set_custom_lib_cache(task_id, smiles_list)
 
     data = {
         "task_id": task_id,

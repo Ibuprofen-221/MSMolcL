@@ -14,26 +14,9 @@ MIN_MZ = 0.0  # 保留的最小m/z值
 MAX_MZ = 5000.0  # 保留的最大m/z值
 INTENSITY_DECIMALS = 2  # 归百化后强度保留小数位数
 
-# 文件输出路径配置（按要求设置）
+# 文件输出路径配置（任务级目录，避免模块全局竞态）
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _DEFAULT_TEMP_DIR = _BACKEND_DIR / "temp"
-SPECTRUM_OUTPUT_DIR = str(_DEFAULT_TEMP_DIR)  # 处理后的谱图文件保存路径
-FRAGTREE_OUTPUT_DIR = str(_DEFAULT_TEMP_DIR)  # 处理后的碎裂树文件保存路径
-STATS_OUTPUT_PATH = str(_DEFAULT_TEMP_DIR / "statas.json")  # 统计信息输出路径
-VALID_PAIRS_MGF = str(_DEFAULT_TEMP_DIR / "valid_pairs_spectra.mgf")  # 有效对谱图文件
-VALID_PAIRS_JSON = str(_DEFAULT_TEMP_DIR / "valid_pairs_fragtrees.json")  # 有效对碎裂树文件
-
-def set_output_base(base_dir: str | Path) -> None:
-    """基于指定目录重置所有输出路径，确保任务隔离。"""
-    base_path = Path(base_dir)
-    base_path.mkdir(parents=True, exist_ok=True)
-
-    global SPECTRUM_OUTPUT_DIR, FRAGTREE_OUTPUT_DIR, STATS_OUTPUT_PATH, VALID_PAIRS_MGF, VALID_PAIRS_JSON
-    SPECTRUM_OUTPUT_DIR = str(base_path)
-    FRAGTREE_OUTPUT_DIR = str(base_path)
-    STATS_OUTPUT_PATH = str(base_path / "statas.json")
-    VALID_PAIRS_MGF = str(base_path / "valid_pairs_spectra.mgf")
-    VALID_PAIRS_JSON = str(base_path / "valid_pairs_fragtrees.json")
 
 # 碎裂树解析参数
 FRAGTREE_VALID_KEY = "frag_tree"  # 判断碎裂树有效的关键字段
@@ -88,11 +71,12 @@ def normalize_ion_value(raw_value: str) -> str:
 
 class SpectrumNormalizer:
     """谱图数据标准化处理器（统一MGF/TXT解析逻辑，移除matchms依赖）"""
-    
-    def __init__(self):
+
+    def __init__(self, output_base_dir: str | Path | None = None):
         self.supported_formats = SUPPORTED_SPECTRUM_FORMATS
-        # 创建输出目录
-        Path(SPECTRUM_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+        self.output_base_dir = Path(output_base_dir) if output_base_dir else _DEFAULT_TEMP_DIR
+        self.output_base_dir.mkdir(parents=True, exist_ok=True)
+        self.valid_pairs_mgf_path = self.output_base_dir / "valid_pairs_spectra.mgf"
         # 缓存解析后的所有谱图（key: title, value: 谱图数据）
         self.all_spectra: Dict[str, Dict[str, Any]] = {}
         # 缓存原始精度数据（保留precursor_mz和m/z的原始字符串格式）
@@ -340,7 +324,7 @@ class SpectrumNormalizer:
         3. 强度使用归百化后的值，保留两位小数
         """
         # 确保输出目录存在
-        output_path = Path(VALID_PAIRS_MGF)
+        output_path = self.valid_pairs_mgf_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -382,9 +366,11 @@ class SpectrumNormalizer:
 
 class FragTreeParser:
     """碎裂树JSON文件解析器（仅生成总文件，无单个小文件）"""
-    
-    def __init__(self):
-        Path(FRAGTREE_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    def __init__(self, output_base_dir: str | Path | None = None):
+        self.output_base_dir = Path(output_base_dir) if output_base_dir else _DEFAULT_TEMP_DIR
+        self.output_base_dir.mkdir(parents=True, exist_ok=True)
+        self.valid_pairs_json_path = self.output_base_dir / "valid_pairs_fragtrees.json"
         # 缓存所有碎裂树（key: title, value: 碎裂树数据）
         self.all_fragtrees: Dict[str, Any] = {}
 
@@ -437,7 +423,7 @@ class FragTreeParser:
         """
         导出有效对的碎裂树为总JSON文件（仅生成总文件，无单个小文件）
         """
-        output_path = Path(VALID_PAIRS_JSON)
+        output_path = self.valid_pairs_json_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         valid_fragtrees = {}
@@ -455,8 +441,13 @@ class SpectrumFragTreeMatcher:
     """谱图-碎裂树匹配器，统计最终有效对并导出总文件"""
     
     @staticmethod
-    def match(spectrum_stats: Dict[str, Any], fragtree_stats: Dict[str, Any],
-              spectrum_normalizer: SpectrumNormalizer, fragtree_parser: FragTreeParser) -> Dict[str, Any]:
+    def match(
+        spectrum_stats: Dict[str, Any],
+        fragtree_stats: Dict[str, Any],
+        spectrum_normalizer: SpectrumNormalizer,
+        fragtree_parser: FragTreeParser,
+        output_stats_path: str | Path,
+    ) -> Dict[str, Any]:
         """
         匹配谱图和碎裂树的title，计算交集并导出总文件
         """
@@ -506,7 +497,7 @@ class SpectrumFragTreeMatcher:
         }
 
         # 保存统计信息到总JSON文件
-        stats_path = Path(STATS_OUTPUT_PATH)
+        stats_path = Path(output_stats_path)
         stats_path.parent.mkdir(parents=True, exist_ok=True)
         with open(stats_path, 'w', encoding='utf-8') as f:
             json.dump(combined_stats, f, ensure_ascii=False, indent=2)
@@ -523,37 +514,46 @@ def main(
     """
     主处理流程
     """
-    if output_base_dir:
-        set_output_base(output_base_dir)
+    base_dir = Path(output_base_dir) if output_base_dir else _DEFAULT_TEMP_DIR
+    base_dir.mkdir(parents=True, exist_ok=True)
+    stats_path = base_dir / "statas.json"
+    valid_pairs_mgf_path = base_dir / "valid_pairs_spectra.mgf"
+    valid_pairs_json_path = base_dir / "valid_pairs_fragtrees.json"
 
     # 验证输入文件路径存在且合法
     spec_path = Path(spectrum_file_path)
     frag_path = Path(fragtree_file_path)
-    
+
     if not spec_path.exists():
         raise FileNotFoundError(f"谱图文件不存在: {spectrum_file_path}")
     if not frag_path.exists():
         raise FileNotFoundError(f"碎裂树文件不存在: {fragtree_file_path}")
-    
+
     # 1. 处理谱图文件（统一MGF/TXT解析逻辑，修复数量统计）
-    spectrum_normalizer = SpectrumNormalizer()
+    spectrum_normalizer = SpectrumNormalizer(output_base_dir=base_dir)
     _, spectrum_stats = spectrum_normalizer.parse_spectrum_file(str(spec_path))
-    print(f"谱图文件处理完成：")
+    print("谱图文件处理完成：")
     print(f"  - 解析的原始块数量: {spectrum_stats['解析的原始块数量']}")
     print(f"  - 合并后的真实谱图数量: {spectrum_stats['原始文件中的谱图数量']}")
-    
+
     # 2. 处理碎裂树文件
-    fragtree_parser = FragTreeParser()
+    fragtree_parser = FragTreeParser(output_base_dir=base_dir)
     _, fragtree_stats = fragtree_parser.parse_fragtree_file(str(frag_path))
     print(f"碎裂树文件处理完成，共找到 {len(fragtree_stats['有效谱图title'])} 个有效碎裂树")
-    
+
     # 3. 匹配并导出有效对总文件
     matcher = SpectrumFragTreeMatcher()
-    combined_stats = matcher.match(spectrum_stats, fragtree_stats, spectrum_normalizer, fragtree_parser)
+    combined_stats = matcher.match(
+        spectrum_stats,
+        fragtree_stats,
+        spectrum_normalizer,
+        fragtree_parser,
+        output_stats_path=stats_path,
+    )
     print(f"最终有效谱图-碎裂树对数量: {combined_stats['最终有效对数量']}")
-    print(f"有效对总MGF文件: {VALID_PAIRS_MGF}")
-    print(f"有效对总JSON文件: {VALID_PAIRS_JSON}")
-    print(f"统计信息已保存至: {STATS_OUTPUT_PATH}")
+    print(f"有效对总MGF文件: {valid_pairs_mgf_path}")
+    print(f"有效对总JSON文件: {valid_pairs_json_path}")
+    print(f"统计信息已保存至: {stats_path}")
 
 
 def process_batch_pairs(

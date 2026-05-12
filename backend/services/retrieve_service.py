@@ -14,6 +14,7 @@ def build_retrieve_job_payload(
     fragtrees_path: str,
     spectra_path: str,
     databases: list[str] | None = None,
+    task_id: str = "",
 ) -> dict:
     """构建并校验检索任务参数。"""
     mode_mapping = {
@@ -31,12 +32,11 @@ def build_retrieve_job_payload(
 
     custom_smiles_list = None
     if retrieve_mode == "custom":
-        if not custom_lib_file_name:
-            raise ValueError("custom 模式缺少 custom_lib_file_name")
-
-        custom_smiles_list = get_custom_lib_cache(custom_lib_file_name)
+        if not task_id:
+            raise ValueError("custom 模式缺少 task_id")
+        custom_smiles_list = get_custom_lib_cache(task_id)
         if not custom_smiles_list:
-            raise ValueError("未在内存中找到 custom_lib_file 内容，请重新调用候选池选择接口")
+            raise ValueError("未在内存中找到自定义库内容，请重新调用候选池选择接口")
 
     for file_path in [statas_path, fragtrees_path, spectra_path]:
         if not Path(file_path).exists():

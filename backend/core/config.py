@@ -104,7 +104,15 @@ rate_limit_default_rule = f"{rate_limit_per_minute}/minute"
 rate_limit_upload_rule = rate_limit_default_rule
 rate_limit_retrieve_rule = rate_limit_default_rule
 rate_limit_retrieve_status_rule = rate_limit_default_rule
+rate_limit_auth_login_rule = os.getenv("RATE_LIMIT_AUTH_LOGIN_RULE", "20/minute")
+rate_limit_auth_register_rule = os.getenv("RATE_LIMIT_AUTH_REGISTER_RULE", "10/minute")
 rate_limit_ip_header_priority = ("x-forwarded-for", "x-real-ip")
+
+# ── Auth guard (login brute-force protection) ──────────────────────
+login_guard_max_failures = int(os.getenv("LOGIN_GUARD_MAX_FAILURES", "5"))
+login_guard_window_seconds = int(os.getenv("LOGIN_GUARD_WINDOW_SECONDS", "300"))
+login_guard_block_seconds = int(os.getenv("LOGIN_GUARD_BLOCK_SECONDS", "600"))
+login_guard_max_entries = int(os.getenv("LOGIN_GUARD_MAX_ENTRIES", "10000"))
 
 # ── Sirius worker queue (mgf-only async json generation) ───────────
 sirius_celery_broker_url = os.getenv("SIRIUS_CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
@@ -113,6 +121,10 @@ sirius_celery_task_name = os.getenv("SIRIUS_CELERY_TASK_NAME", "tasks.process_mg
 sirius_queue_fast = os.getenv("SIRIUS_QUEUE_FAST", "Queue_Fast")
 sirius_queue_slow = os.getenv("SIRIUS_QUEUE_SLOW", "Queue_Slow")
 sirius_fast_threshold = int(os.getenv("SIRIUS_FAST_THRESHOLD", "50"))
+
+# ── In-memory cache TTL ─────────────────────────────────────────────
+batch_group_ttl_seconds = 7200          # 批次任务组过期时间：2 小时
+custom_lib_cache_ttl_seconds = 3600     # 自定义库缓存过期时间：1 小时
 
 # ── Retrieve algorithm parameters ───────────────────────────────────
 retrieve_pubchem_ppm = 1.0

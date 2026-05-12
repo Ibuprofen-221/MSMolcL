@@ -1,14 +1,15 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import Plotly from 'plotly.js-dist-min'
 import { ElMessage } from 'element-plus'
-import SpectrumDetailCard from './SpectrumDetailCard.vue'
 import { checkHealth } from '../api/health'
 import { getRetrieveAdvancedStatus, runRetrieveAdvanced } from '../api/retrieve'
 import { downloadTaskFile } from '../api/download'
+import { fetchSpectrumPlot } from '../api/spectrum'
 import { fetchStatas } from '../api/statas'
 import { buildBatchFileCards, flattenFileCardSpectra } from '../utils/statasBatch'
 import { updateHistoryRecord } from '../api/history'
-import { getCurrentUser, getSessionByUser, setSessionByUser } from '../utils/storage'
+import { getCurrentUser, getSessionByUser, removeSessionByUser, setSessionByUser } from '../utils/storage'
 
 const STEP_TASK = 'task'
 const STEP_FILES = 'files'
@@ -28,6 +29,10 @@ const resultActiveFile = ref('')
 const resultActiveTitle = ref('')
 const summaryCollapseRef = ref(null)
 const resultCollapseRef = ref(null)
+const resultPlotRef = ref(null)
+const resultPlotLoading = ref(false)
+const resultPlotError = ref('')
+const resultPlotKey = ref('')
 const pageSize = 10
 const currentPage = ref(1)
 const resultPageSize = 12
@@ -72,6 +77,76 @@ const resultCurrentSpectrum = computed(() => {
   if (!key) return null
   return resultCurrentSpectra.value.find((item) => String(item.title || '').trim() === key) || null
 })
+const summaryCurrentFile = computed(() => {
+  const key = String(collapseActiveFile.value || '').trim()
+  if (!key) return pagedFileCards.value[0] || fileCards.value[0] || null
+  return fileCards.value.find((item) => String(item.fileKey || '').trim() === key) || null
+})
+const currentValidSpectraCount = computed(() => Number(summaryCurrentFile.value?.spectra?.length || 0))
+
+const advancedResultEntries = computed(() => {
+  const rows = Array.isArray(resultCurrentSpectrum.value?.result?.result_top100)
+    ? resultCurrentSpectrum.value.result.result_top100
+    : []
+  return rows.map((row, idx) => ({
+    rank: row?.rank ?? (idx + 1),
+    score: row?.score ?? '',
+    smiles: row?.smiles || '',
+    formula: row?.formula || '',
+    inchi_key: row?.inchi_key || '',
+    generic_name: row?.generic_name || '',
+    database_name: row?.database_name || '',
+    database_id: row?.database_id || '',
+  }))
+})
+
+const renderResultPlot = async () => {
+  await nextTick()
+  const title = String(resultCurrentSpectrum.value?.title || '').trim()
+  if (!retrieveForm.taskId || !title) {
+    resultPlotLoading.value = false
+    resultPlotError.value = ''
+    if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
+    return
+  }
+
+  const requestKey = `${retrieveForm.taskId}::${title}`
+  resultPlotKey.value = requestKey
+  resultPlotLoading.value = true
+  resultPlotError.value = ''
+
+  try {
+    const resp = await fetchSpectrumPlot({ taskId: retrieveForm.taskId, title })
+    const payload = resp?.data?.data?.plotly_data
+    if (!payload?.data || !payload?.layout) {
+      throw new Error('Invalid spectrum payload')
+    }
+    if (resultPlotKey.value !== requestKey) return
+
+    await nextTick()
+    if (!resultPlotRef.value) return
+
+    await Plotly.react(resultPlotRef.value, payload.data, payload.layout, {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+    })
+  } catch (error) {
+    if (resultPlotKey.value !== requestKey) return
+    resultPlotError.value = error?.response?.data?.detail || error?.response?.data?.message || error?.message || 'Failed to load spectrum plot'
+    if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
+  } finally {
+    if (resultPlotKey.value === requestKey) resultPlotLoading.value = false
+  }
+}
+
+watch(
+  () => [retrieveForm.taskId, resultCurrentSpectrum.value?.title],
+  () => {
+    renderResultPlot()
+  },
+  { immediate: true, flush: 'post' }
+)
 
 const stepItems = computed(() => [
   { key: STEP_TASK, label: 'Task Load' },
@@ -122,7 +197,7 @@ const gotoStep = (step) => {
 const pickResultDefaults = () => {
   resultCurrentPage.value = 1
   resultActiveFile.value = fileCards.value[0]?.fileKey || ''
-  resultActiveTitle.value = fileCards.value[0]?.spectra?.[0]?.title || ''
+  resultActiveTitle.value = ''
 }
 
 const scrollActiveCollapseToTop = (collapseRef) => {
@@ -138,21 +213,13 @@ const scrollActiveCollapseToTop = (collapseRef) => {
 
 const onResultFileChange = (fileKey) => {
   resultActiveFile.value = fileKey || ''
-  resultActiveTitle.value = resultCurrentFile.value?.spectra?.[0]?.title || ''
+  resultActiveTitle.value = ''
   scrollActiveCollapseToTop(resultCollapseRef)
 }
 
 const onSummaryCollapseChange = (name) => {
   collapseActiveFile.value = name || ''
   scrollActiveCollapseToTop(summaryCollapseRef)
-}
-
-const getResultTopEntries = (result) => {
-  const rows = Array.isArray(result?.result_top100) ? result.result_top100 : []
-  if (rows.length) return rows
-  const smilesList = result?.top100 || []
-  const scores = result?.top100_score || []
-  return smilesList.map((smiles, idx) => ({ rank: idx + 1, score: scores[idx] ?? '', smiles }))
 }
 
 async function mapStatasToList(statas, resultType = 'normal') {
@@ -197,7 +264,7 @@ onMounted(() => {
   if (savedConfig?.ion_mode && ['pos', 'neg'].includes(savedConfig.ion_mode)) retrieveForm.ionMode = savedConfig.ion_mode
 
   const savedRetrieve = getSessionByUser(sessionKeys.retrieve, getSessionUsername())
-  if (savedRetrieve) {
+  if (savedRetrieve && String(savedRetrieve?.task_id || '') === String(retrieveForm.taskId || '')) {
     retrieveSummary.value = savedRetrieve?.result || null
     retrieveJob.value = {
       job_id: savedRetrieve?.job_id || '',
@@ -211,6 +278,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopRetrievePolling = true
+  if (resultPlotRef.value) Plotly.purge(resultPlotRef.value)
 })
 
 const handleHealthCheck = async () => {
@@ -234,9 +302,14 @@ const handleLoadTask = async () => {
   try {
     retrieveForm.taskId = retrieveForm.taskId.trim()
     setSessionByUser(sessionKeys.task, { task_id: retrieveForm.taskId }, getSessionUsername())
-    const resp = await fetchStatas({ taskId: retrieveForm.taskId, resultType: 'normal' })
+
+    const resp = await fetchStatas({ taskId: retrieveForm.taskId, resultType: 'advanced' })
     const data = resp?.data?.data
-    if (data) await mapStatasToList(data, 'normal')
+    if (data) await mapStatasToList(data, 'advanced')
+
+    retrieveSummary.value = null
+    retrieveJob.value = null
+    removeSessionByUser(sessionKeys.retrieve, getSessionUsername())
     currentStep.value = STEP_FILES
     ElMessage.success('Task loaded')
   } catch (error) {
@@ -280,6 +353,7 @@ const pollRetrieveResult = async (jobId) => {
     if (['success', 'partial_failed'].includes(statusData.status)) {
       retrieveSummary.value = statusData.result || null
       setSessionByUser(sessionKeys.retrieve, {
+        task_id: retrieveForm.taskId,
         job_id: statusData.job_id,
         status: statusData.status,
         result: retrieveSummary.value,
@@ -322,7 +396,7 @@ const handleRetrieve = async () => {
     if (!jobId) throw new Error('Search submission failed: missing job_id')
 
     retrieveJob.value = { job_id: jobId, status: submitData?.status || 'running', error: null }
-    setSessionByUser(sessionKeys.retrieve, { job_id: jobId, status: retrieveJob.value.status, result: null, error: null, failed_count: 0, total_count: 0 }, getSessionUsername())
+    setSessionByUser(sessionKeys.retrieve, { task_id: retrieveForm.taskId, job_id: jobId, status: retrieveJob.value.status, result: null, error: null, failed_count: 0, total_count: 0 }, getSessionUsername())
 
     await saveHistory({ advanced_status: 'pending' })
     ElMessage.success('Advanced search submitted and running')
@@ -424,7 +498,7 @@ const handleDownloadStatas = async () => {
         <div class="module-body">
           <el-descriptions border :column="1" class="read-info-desc">
             <el-descriptions-item label="Valid spectra count">
-              <span class="metric">{{ spectraList.length }}</span>
+              <span class="metric">{{ currentValidSpectraCount }}</span>
             </el-descriptions-item>
           </el-descriptions>
           <el-collapse v-model="collapseActiveFile" accordion class="collapse" @change="onSummaryCollapseChange">
@@ -449,23 +523,25 @@ const handleDownloadStatas = async () => {
         <div class="result-layout">
           <aside class="result-sidebar">
             <div class="result-sidebar-title">File list</div>
-            <el-collapse v-model="resultActiveFile" accordion class="collapse" @change="onResultFileChange">
-              <el-collapse-item v-for="file in pagedResultFiles" :key="file.fileKey" :name="file.fileKey">
-                <template #title><strong>{{ file.fileName }}</strong></template>
-                <div class="file-spectra-list">
-                  <button
-                    v-for="row in file.spectra"
-                    :key="`${file.fileKey}-${row.title}`"
-                    type="button"
-                    class="spectrum-btn"
-                    :class="{ active: resultActiveTitle === row.title }"
-                    @click="resultActiveTitle = row.title"
-                  >
-                    {{ row.title }}
-                  </button>
-                </div>
-              </el-collapse-item>
-            </el-collapse>
+            <div class="result-file-scroll">
+              <el-collapse ref="resultCollapseRef" v-model="resultActiveFile" accordion class="collapse result-collapse-scroll" @change="onResultFileChange">
+                <el-collapse-item v-for="file in pagedResultFiles" :key="file.fileKey" :name="file.fileKey">
+                  <template #title><strong>{{ file.fileName }}</strong></template>
+                  <div class="file-spectra-list">
+                    <button
+                      v-for="row in file.spectra"
+                      :key="`${file.fileKey}-${row.title}`"
+                      type="button"
+                      class="spectrum-btn"
+                      :class="{ active: resultActiveTitle === row.title }"
+                      @click="resultActiveTitle = row.title"
+                    >
+                      {{ row.title }}
+                    </button>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
             <el-pagination
               v-if="fileCount > resultPageSize"
               small
@@ -478,15 +554,46 @@ const handleDownloadStatas = async () => {
           </aside>
 
           <main class="result-content">
-            <el-empty v-if="!resultCurrentSpectrum" description="Select one file and one spectrum" />
-            <SpectrumDetailCard
-              v-else
-              :task-id="retrieveForm.taskId"
-              :title="resultCurrentSpectrum.title"
-              :normal-item="{}"
-              :advanced-item="{ ...resultCurrentSpectrum, '检索结果': resultCurrentSpectrum.result || null }"
-              view-mode="advanced"
-            />
+            <el-empty v-if="!resultCurrentSpectrum" description="Select one spectrum from the left list" />
+            <div v-else class="result-cards-scroll">
+              <el-card class="result-panel-card" shadow="never">
+                <template #header>
+                  <div class="result-panel-header">Spectrum plot</div>
+                </template>
+                <div class="result-plot-wrapper" v-loading="resultPlotLoading">
+                  <el-alert v-if="resultPlotError" :title="resultPlotError" type="error" :closable="false" show-icon />
+                  <div ref="resultPlotRef" class="result-plot-canvas"></div>
+                </div>
+              </el-card>
+
+              <el-card class="result-panel-card" shadow="never">
+                <template #header>
+                  <div class="result-panel-header">Spectrum information</div>
+                </template>
+
+                <el-descriptions border :column="2" class="result-info-desc">
+                  <el-descriptions-item label="Title">{{ resultCurrentSpectrum?.title || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Adduct">{{ resultCurrentSpectrum?.adduct || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Precursor m/z">{{ resultCurrentSpectrum?.mz ?? '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="Peaks">{{ resultCurrentSpectrum?.peaks ?? 0 }}</el-descriptions-item>
+                </el-descriptions>
+
+                <div class="normal-results-block">
+                  <div class="normal-results-title">Advanced search Top100 details</div>
+                  <el-empty v-if="!advancedResultEntries.length" description="No advanced search results" />
+                  <el-table v-else :data="advancedResultEntries" size="small" class="result-table" :header-cell-style="{ background: '#f8fafc', fontWeight: '600' }">
+                    <el-table-column prop="rank" label="Rank" width="80" />
+                    <el-table-column prop="score" label="Score" width="120" />
+                    <el-table-column prop="smiles" label="SMILES" min-width="220" show-overflow-tooltip />
+                    <el-table-column prop="formula" label="FORMULA" min-width="140" />
+                    <el-table-column prop="generic_name" label="GENERIC_NAME" min-width="180" show-overflow-tooltip />
+                    <el-table-column prop="database_name" label="DATABASE_NAME" min-width="160" show-overflow-tooltip />
+                    <el-table-column prop="database_id" label="DATABASE_ID" min-width="160" show-overflow-tooltip />
+                    <el-table-column prop="inchi_key" label="INCHI_KEY" min-width="200" show-overflow-tooltip />
+                  </el-table>
+                </div>
+              </el-card>
+            </div>
           </main>
         </div>
       </section>
@@ -516,11 +623,21 @@ const handleDownloadStatas = async () => {
   border-radius: 8px;
   padding: 14px 20px 10px;
   display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
-  position: relative;
+  position: sticky;
+  top: 100px;
+  z-index: 900;
 }
-.flow-nav-wrap.advanced { grid-template-columns: repeat(3, 1fr); }
-.flow-line { position: absolute; left: 10%; right: 10%; top: 30px; height: 4px; background: #2f5f8e; z-index: 0; }
+.flow-line {
+  position: absolute;
+  left: 16.67%;
+  right: 16.67%;
+  top: 23px;
+  height: 2px;
+  background: #dcdfe6;
+  z-index: 0;
+}
 .flow-step {
   position: relative;
   z-index: 1;
@@ -531,21 +648,26 @@ const handleDownloadStatas = async () => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  padding: 0;
 }
-.flow-step:disabled { cursor: not-allowed; }
+.flow-step:disabled { cursor: not-allowed; opacity: 0.55; }
 .dot {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 3px solid #f56c6c;
-  background: #f56c6c;
+  border: 2px solid #dcdfe6;
+  background: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
 }
 .flow-step.done .dot { border-color: #67c23a; background: #67c23a; }
-.flow-step.current .dot-inner { width: 8px; height: 8px; background: #000; border-radius: 50%; }
-.label { font-size: 13px; color: #1f2937; font-weight: 600; }
+.flow-step.current .dot { border-color: #3e7ab6; background: #3e7ab6; }
+.flow-step.current .dot-inner { width: 6px; height: 6px; background: #fff; border-radius: 50%; }
+.label { font-size: 13px; color: #606266; font-weight: 500; }
+.flow-step.current .label { color: #1f2937; font-weight: 600; }
+.flow-step.done .label { color: #303133; }
 
 .actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .hint { margin-top: 12px; color: #606266; line-height: 1.5; font-size: 12px; }
@@ -556,11 +678,12 @@ const handleDownloadStatas = async () => {
 .btn-unified { border-radius: 0 !important; border: none !important; color: #000 !important; background: #3e7ab6 !important; }
 .btn-unified:hover, .btn-unified:focus, .btn-unified:active { border: none !important; color: #000 !important; background: #3e7ab6 !important; }
 
-.result-layout { margin-top: 10px; display: grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 560px; }
-.result-sidebar { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 10px; display: flex; flex-direction: column; height: calc(100vh - 240px); min-height: 420px; }
+.result-layout { margin-top: 10px; display: grid; grid-template-columns: 320px 1fr; gap: 12px; height: calc(100vh - 240px); min-height: 560px; }
+.result-sidebar { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 10px; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .result-sidebar-title { font-weight: 700; color: #1f2937; }
-.result-collapse-scroll { margin-top: 8px; flex: 1; min-height: 0; overflow: auto; }
-.file-spectra-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow: auto; padding-right: 2px; }
+.result-file-scroll { margin-top: 8px; flex: 1; min-height: 0; overflow: auto; }
+.result-collapse-scroll { margin-top: 0; }
+.file-spectra-list { display: flex; flex-direction: column; gap: 6px; height: calc(100vh - 430px); min-height: 180px; overflow: auto; padding-right: 2px; }
 .spectrum-btn {
   border: 1px solid #dcdfe6;
   border-radius: 6px;
@@ -573,13 +696,21 @@ const handleDownloadStatas = async () => {
 }
 .spectrum-btn:hover { border-color: #409eff; background: #f5f9ff; }
 .spectrum-btn.active { border-color: #409eff; background: #ecf5ff; }
-.pager { margin-top: auto; justify-content: center; }
-.result-content { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 12px; }
-.detail-panel { display: flex; flex-direction: column; gap: 10px; }
-.detail-head { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; color: #303133; font-size: 13px; }
+.pager { margin-top: 10px; justify-content: center; }
+.result-content { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 12px; height: 100%; min-height: 0; }
+.result-cards-scroll { height: 100%; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.result-panel-card { flex: 0 0 auto; border-radius: 8px; }
+.result-panel-header { font-weight: 700; color: #1f2937; }
+.result-plot-wrapper { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+.result-plot-canvas { min-height: 380px; }
+.result-info-desc { margin-bottom: 12px; }
+.normal-results-block { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+.normal-results-title { font-weight: 700; margin-bottom: 8px; }
+.result-table { width: 100%; }
 
 @media (max-width: 1100px) {
-  .result-layout { grid-template-columns: 1fr; }
-  .detail-head { grid-template-columns: 1fr; }
+  .result-layout { grid-template-columns: 1fr; height: auto; }
+  .result-sidebar { height: auto; }
+  .file-spectra-list { height: 220px; }
 }
 </style>

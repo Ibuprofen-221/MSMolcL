@@ -3,6 +3,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from core.user_lock import user_lock_manager
 from util.file_utils import get_user_task_dir, resolve_user_data_dir
 
 ALLOWED_STATUS = {"pending", "success", "failed"}
@@ -117,35 +118,37 @@ def upsert_task_record(
     if advanced_status is not None and advanced_status not in ALLOWED_STATUS:
         raise ValueError("advanced_status 仅支持 pending/success/failed")
 
-    records = _read_data(user_data_path)
+    lock = user_lock_manager.acquire(user_data_path)
+    with lock:
+        records = _read_data(user_data_path)
 
-    target = None
-    for item in records:
-        if isinstance(item, dict) and item.get("task_id") == task_id:
-            target = item
-            break
+        target = None
+        for item in records:
+            if isinstance(item, dict) and item.get("task_id") == task_id:
+                target = item
+                break
 
-    if target is None:
-        target = {
-            "task_id": task_id,
-            "create_time": _utc_now_iso(),
-            "normal_status": "pending",
-            "advanced_status": "pending",
-            "note": _normalize_note(note),
-        }
-        records.append(target)
-    else:
-        target["note"] = _normalize_note(target.get("note"))
+        if target is None:
+            target = {
+                "task_id": task_id,
+                "create_time": _utc_now_iso(),
+                "normal_status": "pending",
+                "advanced_status": "pending",
+                "note": _normalize_note(note),
+            }
+            records.append(target)
+        else:
+            target["note"] = _normalize_note(target.get("note"))
 
-    if normal_status is not None:
-        target["normal_status"] = normal_status
-    if advanced_status is not None:
-        target["advanced_status"] = advanced_status
-    if note is not None:
-        target["note"] = _normalize_note(note)
+        if normal_status is not None:
+            target["normal_status"] = normal_status
+        if advanced_status is not None:
+            target["advanced_status"] = advanced_status
+        if note is not None:
+            target["note"] = _normalize_note(note)
 
-    _atomic_write(user_data_path, records)
-    return target
+        _atomic_write(user_data_path, records)
+        return target
 
 
 def delete_task_record(task_id: str, user_data_path: str) -> dict:
@@ -153,20 +156,22 @@ def delete_task_record(task_id: str, user_data_path: str) -> dict:
     if not safe_task_id:
         raise ValueError("task_id不能为空")
 
-    records = _read_data(user_data_path)
+    lock = user_lock_manager.acquire(user_data_path)
+    with lock:
+        records = _read_data(user_data_path)
 
-    record_removed = False
-    filtered_records: list[dict] = []
-    for item in records:
-        if isinstance(item, dict) and item.get("task_id") == safe_task_id:
-            record_removed = True
-            continue
-        filtered_records.append(item)
+        record_removed = False
+        filtered_records: list[dict] = []
+        for item in records:
+            if isinstance(item, dict) and item.get("task_id") == safe_task_id:
+                record_removed = True
+                continue
+            filtered_records.append(item)
 
-    dir_removed = _remove_task_dir_if_exists(user_data_path, safe_task_id)
+        dir_removed = _remove_task_dir_if_exists(user_data_path, safe_task_id)
 
-    if record_removed:
-        _atomic_write(user_data_path, filtered_records)
+        if record_removed:
+            _atomic_write(user_data_path, filtered_records)
 
     if not record_removed and not dir_removed:
         raise ValueError("历史记录不存在")

@@ -1,5 +1,7 @@
 import json
+import time
 from pathlib import Path
+from threading import Lock
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -7,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.auth import get_current_user
-from core.config import rate_limit_retrieve_rule, rate_limit_retrieve_status_rule
+from core.config import batch_group_ttl_seconds, rate_limit_retrieve_rule, rate_limit_retrieve_status_rule
 from core.rate_limit import limiter
 from core.response import error_response, success_response
 from models.user import User
@@ -24,8 +26,43 @@ NORMAL_STATAS_FILENAME = "statas.json"
 ADVANCED_STATAS_FILENAME = "statas_advanced.json"
 BATCH_GROUP_PREFIX = "batchgrp_"
 
-# 进程内批次分组映射（兼容单job模式）
-BATCH_JOB_GROUPS: dict[str, dict] = {}
+
+class _TTLDict:
+    """带 TTL 的字典，访问时惰性清理过期条目。"""
+
+    def __init__(self, ttl_seconds: float = 7200):
+        self._ttl = ttl_seconds
+        self._data: dict[str, tuple[float, dict]] = {}
+        self._lock = Lock()
+
+    def get(self, key: str) -> dict | None:
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            created_at, value = entry
+            if time.monotonic() - created_at > self._ttl:
+                del self._data[key]
+                return None
+            return value
+
+    def __setitem__(self, key: str, value: dict):
+        with self._lock:
+            self._data[key] = (time.monotonic(), value)
+
+    def __delitem__(self, key: str):
+        with self._lock:
+            self._data.pop(key, None)
+
+    def cleanup(self):
+        now = time.monotonic()
+        with self._lock:
+            expired = [k for k, (ts, _) in self._data.items() if now - ts > self._ttl]
+            for k in expired:
+                del self._data[k]
+
+
+BATCH_JOB_GROUPS = _TTLDict(ttl_seconds=batch_group_ttl_seconds)
 
 
 class RetrievePayload(BaseModel):
@@ -335,6 +372,7 @@ async def retrieve_api(
                 fragtrees_path=str(entry["fragtrees_path"]),
                 spectra_path=str(entry["spectra_path"]),
                 databases=payload.databases,
+                task_id=payload.task_id,
             )
             job_info = retrieve_runtime.submit(job_payload=job_payload, task_id=payload.task_id)
             upsert_task_record(task_id=payload.task_id, user_data_path=current_user.data_path, normal_status="pending")
@@ -351,6 +389,7 @@ async def retrieve_api(
                 fragtrees_path=str(entry["fragtrees_path"]),
                 spectra_path=str(entry["spectra_path"]),
                 databases=payload.databases,
+                task_id=payload.task_id,
             )
             child_job = retrieve_runtime.submit(job_payload=job_payload, task_id=payload.task_id)
             child_job_ids.append(str(child_job.get("job_id") or ""))

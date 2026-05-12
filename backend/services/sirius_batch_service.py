@@ -1,3 +1,4 @@
+import asyncio
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -11,7 +12,7 @@ from core.config import (
     sirius_queue_fast,
     sirius_queue_slow,
 )
-from core.memory_store import update_processed_cache
+
 from services.file_preprocess import main as preprocess_main
 from services.history_store import upsert_task_record
 from util.file_utils import get_user_file_path, get_user_task_dir
@@ -66,6 +67,32 @@ def _read_json(path: Path) -> dict:
 
 def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# 异步聚合任务追踪
+_aggregate_tasks: dict[str, asyncio.Task] = {}
+
+
+async def trigger_aggregate_async(user_data_path: str, task_id: str) -> None:
+    """异步触发聚合（不阻塞调用方）。"""
+    task_key = f"{user_data_path}:{task_id}"
+    if task_key in _aggregate_tasks:
+        return
+
+    async def _do_aggregate():
+        try:
+            task_dir = get_user_task_dir(user_data_path=user_data_path, task_id=task_id, create=False)
+            meta = _read_meta(task_dir)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                _run_aggregate_if_needed,
+                user_data_path, task_id, task_dir, meta,
+            )
+        finally:
+            _aggregate_tasks.pop(task_key, None)
+
+    _aggregate_tasks[task_key] = asyncio.create_task(_do_aggregate())
 
 
 def _read_meta(task_dir: Path) -> dict:
@@ -274,17 +301,9 @@ def _run_aggregate_if_needed(user_data_path: str, task_id: str, task_dir: Path, 
     spectra_file = get_user_file_path(user_data_path, task_id, "valid_pairs_spectra.mgf", create=True)
 
     merged_statas = {
-        "谱图文件统计": {
-            "原始文件中的谱图数量": len(merged_root_info),
-            "原始谱图title": [item.get("title", "") for item in merged_root_info],
-            "解析的原始块数量": len(merged_root_info),
-        },
         "碎裂树文件统计": {
-            "有效谱图title": [item.get("title", "") for item in merged_root_info],
             "有效碎裂树根节点信息": merged_root_info,
         },
-        "最终有效对": merged_valid_pairs,
-        "最终有效对数量": len(merged_valid_pairs),
         "批次文件统计": {
             "mgf上传数": len(items),
             "json上传数": len(success_items),
@@ -299,11 +318,6 @@ def _run_aggregate_if_needed(user_data_path: str, task_id: str, task_dir: Path, 
     fragtrees_file.write_text(json.dumps(merged_fragtrees, ensure_ascii=False, indent=2), encoding="utf-8")
     spectra_file.write_text("\n\n".join(merged_spectra_text_parts) + ("\n" if merged_spectra_text_parts else ""), encoding="utf-8")
 
-    update_processed_cache(
-        spectra_content=spectra_file.read_text(encoding="utf-8"),
-        fragtrees_content=merged_fragtrees,
-        statas=merged_statas,
-    )
     upsert_task_record(
         task_id=task_id,
         user_data_path=user_data_path,
@@ -383,12 +397,14 @@ def get_mgf_only_batch_status(user_data_path: str, task_id: str) -> dict:
     meta["items"] = items
     _write_meta(task_dir, meta)
 
-    _run_aggregate_if_needed(user_data_path=user_data_path, task_id=task_id, task_dir=task_dir, meta=meta)
+    # 聚合改由 trigger_aggregate_async 异步触发，不再在此处阻塞
     meta = _read_meta(task_dir)
     items = [x for x in meta.get("items", []) if isinstance(x, dict)]
 
     overall, progress = _calc_overall(items)
-    if bool(meta.get("aggregate_done")):
+    if progress["done"] == progress["total"] and not bool(meta.get("aggregate_done")):
+        overall = "running"  # 等待异步聚合完成
+    elif bool(meta.get("aggregate_done")):
         aggregate_status = str(meta.get("aggregate_status") or "")
         if aggregate_status in {"success", "partial_failed", "failed"}:
             overall = aggregate_status

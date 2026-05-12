@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -12,7 +13,7 @@ from core.config import (
     upload_max_total_files,
 )
 from core.exceptions import FileFormatError, FileMissingError, FileSizeError
-from core.memory_store import update_processed_cache
+
 from core.rate_limit import limiter
 from core.response import success_response
 from models.user import User
@@ -207,7 +208,7 @@ async def upload_files(
         merged_spectra_text_parts: list[str] = []
         batch_items: list[dict] = []
 
-        for idx, stem in enumerate(paired_stems, start=1):
+        async def _process_one_pair(stem: str, idx: int) -> dict:
             mgf_file = mgf_stem_map[stem]
             json_file = json_stem_map[stem]
 
@@ -216,26 +217,28 @@ async def upload_files(
             unique_suffix = str(int(time.time() * 1000))
 
             saved_mgf_path = get_user_file_path(
-                current_user.data_path,
-                task_id,
-                f"upload_mgf_{stem}_{unique_suffix}.{mgf_ext}",
-                create=True,
+                current_user.data_path, task_id,
+                f"upload_mgf_{stem}_{unique_suffix}.{mgf_ext}", create=True,
             )
             saved_json_path = get_user_file_path(
-                current_user.data_path,
-                task_id,
-                f"upload_json_{stem}_{unique_suffix}.{json_ext}",
-                create=True,
+                current_user.data_path, task_id,
+                f"upload_json_{stem}_{unique_suffix}.{json_ext}", create=True,
             )
 
             await save_upload_file(upload_file=mgf_file, target_path=saved_mgf_path)
             await save_upload_file(upload_file=json_file, target_path=saved_json_path)
-            saved_temp_files.extend([saved_mgf_path, saved_json_path])
 
             pair_dir = task_dir / f"pair_{idx:03d}_{stem}"
             pair_dir.mkdir(parents=True, exist_ok=True)
 
-            preprocess_main(str(saved_mgf_path), str(saved_json_path), output_base_dir=pair_dir)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                preprocess_main,
+                str(saved_mgf_path),
+                str(saved_json_path),
+                pair_dir,
+            )
 
             pair_statas_path = pair_dir / "statas.json"
             pair_fragtrees_path = pair_dir / "valid_pairs_fragtrees.json"
@@ -248,48 +251,58 @@ async def upload_files(
             pair_fragtrees = json.loads(pair_fragtrees_path.read_text(encoding="utf-8"))
             pair_spectra_text = pair_spectra_path.read_text(encoding="utf-8")
 
-            pair_root_info = pair_statas.get("碎裂树文件统计", {}).get("有效碎裂树根节点信息", [])
-            pair_valid_pairs = pair_statas.get("最终有效对", [])
+            return {
+                "stem": stem,
+                "idx": idx,
+                "temp_files": [saved_mgf_path, saved_json_path],
+                "pair_dir": pair_dir.name,
+                "source_mgf": mgf_file.filename,
+                "source_json": json_file.filename,
+                "statas_path": str(pair_statas_path.resolve()),
+                "fragtrees_path": str(pair_fragtrees_path.resolve()),
+                "spectra_path": str(pair_spectra_path.resolve()),
+                "root_info": pair_statas.get("碎裂树文件统计", {}).get("有效碎裂树根节点信息", []),
+                "valid_pairs": pair_statas.get("最终有效对", []),
+                "fragtrees": pair_fragtrees,
+                "spectra_text": pair_spectra_text,
+            }
 
-            merged_root_info.extend(pair_root_info)
-            merged_valid_pairs.extend(pair_valid_pairs)
-            merged_fragtrees.update(pair_fragtrees)
-            if pair_spectra_text.strip():
-                merged_spectra_text_parts.append(pair_spectra_text.strip())
+        semaphore = asyncio.Semaphore(4)
+        async def _bounded(stem, idx):
+            async with semaphore:
+                return await _process_one_pair(stem, idx)
 
-            batch_items.append(
-                {
-                    "pair_key": stem,
-                    "pair_dir": pair_dir.name,
-                    "source_files": {
-                        "mgf": mgf_file.filename,
-                        "json": json_file.filename,
-                    },
-                    "output_files": {
-                        "statas": str(pair_statas_path.resolve()),
-                        "fragtrees": str(pair_fragtrees_path.resolve()),
-                        "spectra": str(pair_spectra_path.resolve()),
-                    },
-                    "valid_pairs_count": len(pair_valid_pairs),
-                }
-            )
+        results = await asyncio.gather(*[
+            _bounded(stem, idx) for idx, stem in enumerate(paired_stems, start=1)
+        ])
+
+        for r in results:
+            saved_temp_files.extend(r["temp_files"])
+            merged_root_info.extend(r["root_info"])
+            merged_valid_pairs.extend(r["valid_pairs"])
+            merged_fragtrees.update(r["fragtrees"])
+            if r["spectra_text"].strip():
+                merged_spectra_text_parts.append(r["spectra_text"].strip())
+            batch_items.append({
+                "pair_key": r["stem"],
+                "pair_dir": r["pair_dir"],
+                "source_files": {"mgf": r["source_mgf"], "json": r["source_json"]},
+                "output_files": {
+                    "statas": r["statas_path"],
+                    "fragtrees": r["fragtrees_path"],
+                    "spectra": r["spectra_path"],
+                },
+                "valid_pairs_count": len(r["valid_pairs"]),
+            })
 
         statas_file = get_user_file_path(current_user.data_path, task_id, "statas.json")
         fragtrees_file = get_user_file_path(current_user.data_path, task_id, "valid_pairs_fragtrees.json")
         spectra_file = get_user_file_path(current_user.data_path, task_id, "valid_pairs_spectra.mgf")
 
         merged_statas = {
-            "谱图文件统计": {
-                "原始文件中的谱图数量": len(merged_root_info),
-                "原始谱图title": [item.get("title", "") for item in merged_root_info],
-                "解析的原始块数量": len(merged_root_info),
-            },
             "碎裂树文件统计": {
-                "有效谱图title": [item.get("title", "") for item in merged_root_info],
                 "有效碎裂树根节点信息": merged_root_info,
             },
-            "最终有效对": merged_valid_pairs,
-            "最终有效对数量": len(merged_valid_pairs),
             "批次文件统计": {
                 "mgf上传数": len(mgf_list),
                 "json上传数": len(json_list),
@@ -303,12 +316,6 @@ async def upload_files(
         statas_file.write_text(json.dumps(merged_statas, ensure_ascii=False, indent=2), encoding="utf-8")
         fragtrees_file.write_text(json.dumps(merged_fragtrees, ensure_ascii=False, indent=2), encoding="utf-8")
         spectra_file.write_text("\n\n".join(merged_spectra_text_parts) + ("\n" if merged_spectra_text_parts else ""), encoding="utf-8")
-
-        update_processed_cache(
-            spectra_content=spectra_file.read_text(encoding="utf-8"),
-            fragtrees_content=merged_fragtrees,
-            statas=merged_statas,
-        )
 
         upsert_task_record(
             task_id=task_id,

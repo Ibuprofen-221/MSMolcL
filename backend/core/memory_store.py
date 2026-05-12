@@ -1,26 +1,28 @@
-# 内存缓存：供后续流程复用有效对结果
-processed_cache = {
-    "valid_pairs_spectra_content": "",
-    "valid_pairs_fragtrees_content": {},
-    "statas": {},
-}
+import time
+from threading import Lock
 
-# 自定义候选库内存缓存（仅在内存使用，不落盘）
-custom_lib_cache: dict[str, list[str]] = {}
+from core.config import custom_lib_cache_ttl_seconds
 
-
-def update_processed_cache(spectra_content: str, fragtrees_content: dict, statas: dict) -> None:
-    """更新预处理结果内存缓存。"""
-    processed_cache["valid_pairs_spectra_content"] = spectra_content
-    processed_cache["valid_pairs_fragtrees_content"] = fragtrees_content
-    processed_cache["statas"] = statas
+# 自定义候选库缓存（任务级 TTL，线程安全）
+_custom_lib_lock = Lock()
+_custom_lib_store: dict[str, tuple[float, list[str]]] = {}
 
 
-def set_custom_lib_cache(file_name: str, smiles_list: list[str]) -> None:
-    """写入自定义候选库到内存缓存。"""
-    custom_lib_cache[file_name] = smiles_list
+def set_custom_lib_cache(task_id: str, smiles_list: list[str]) -> None:
+    with _custom_lib_lock:
+        key = f"task:{task_id}"
+        expire_at = time.monotonic() + custom_lib_cache_ttl_seconds
+        _custom_lib_store[key] = (expire_at, smiles_list)
 
 
-def get_custom_lib_cache(file_name: str) -> list[str] | None:
-    """从内存缓存读取自定义候选库。"""
-    return custom_lib_cache.get(file_name)
+def get_custom_lib_cache(task_id: str) -> list[str] | None:
+    with _custom_lib_lock:
+        key = f"task:{task_id}"
+        entry = _custom_lib_store.get(key)
+        if entry is None:
+            return None
+        expire_at, smiles = entry
+        if time.monotonic() > expire_at:
+            del _custom_lib_store[key]
+            return None
+        return smiles

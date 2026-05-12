@@ -102,6 +102,12 @@ const resultCurrentSpectrum = computed(() => {
   if (!key) return null
   return resultCurrentSpectra.value.find((item) => String(item.title || '').trim() === key) || null
 })
+const summaryCurrentFile = computed(() => {
+  const key = String(collapseActiveFile.value || '').trim()
+  if (!key) return pagedFileCards.value[0] || fileCards.value[0] || null
+  return fileCards.value.find((item) => String(item.fileKey || '').trim() === key) || null
+})
+const currentValidSpectraCount = computed(() => Number(summaryCurrentFile.value?.spectra?.length || 0))
 
 const normalResultEntries = computed(() => {
   const rows = Array.isArray(resultCurrentSpectrum.value?.result?.result_top100)
@@ -766,7 +772,7 @@ const handleDownloadStatas = async () => {
         <div class="module-body">
           <el-descriptions border :column="1" class="read-info-desc">
             <el-descriptions-item label="Valid spectra count">
-              <span class="metric">{{ spectraList.length }}</span>
+              <span class="metric">{{ currentValidSpectraCount }}</span>
             </el-descriptions-item>
           </el-descriptions>
           <el-collapse v-model="collapseActiveFile" accordion class="collapse" @change="onSummaryCollapseChange">
@@ -938,7 +944,15 @@ const handleDownloadStatas = async () => {
   top: 100px;
   z-index: 900;
 }
-.flow-line { position: absolute; left: 12.5%; right: 12.5%; top: 26px; height: 3px; background: #2f5f8e; z-index: 0; }
+.flow-line {
+  position: absolute;
+  left: 12.5%;
+  right: 12.5%;
+  top: 23px;
+  height: 2px;
+  background: #dcdfe6;
+  z-index: 0;
+}
 .flow-step {
   position: relative;
   z-index: 1;
@@ -949,21 +963,26 @@ const handleDownloadStatas = async () => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  padding: 0;
 }
-.flow-step:disabled { cursor: not-allowed; }
+.flow-step:disabled { cursor: not-allowed; opacity: 0.55; }
 .dot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 1.5px solid #000;
-  background: #f56c6c;
+  border: 2px solid #dcdfe6;
+  background: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
 }
-.flow-step.done .dot { background: #67c23a; }
-.flow-step.current .dot-inner { width: 6px; height: 6px; background: #000; border-radius: 50%; }
-.label { font-size: 13px; color: #1f2937; font-weight: 600; }
+.flow-step.done .dot { border-color: #67c23a; background: #67c23a; }
+.flow-step.current .dot { border-color: #3e7ab6; background: #3e7ab6; }
+.flow-step.current .dot-inner { width: 6px; height: 6px; background: #fff; border-radius: 50%; }
+.label { font-size: 13px; color: #606266; font-weight: 500; }
+.flow-step.current .label { color: #1f2937; font-weight: 600; }
+.flow-step.done .label { color: #303133; }
 
 .upload-row { display: flex; gap: 16px; flex-wrap: wrap; }
 .upload-block { flex: 1; min-width: 240px; }

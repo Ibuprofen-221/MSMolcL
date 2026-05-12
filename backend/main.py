@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncio
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -39,14 +41,29 @@ from services.retrieve_advanced_runtime import retrieve_advanced_runtime
 from services.retrieve_runtime import retrieve_runtime
 
 
+async def _periodic_cleanup_batch_groups(interval: int = 300):
+    from api.retrieve import BATCH_JOB_GROUPS
+
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            BATCH_JOB_GROUPS.cleanup()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     await retrieve_runtime.startup()
     await retrieve_advanced_runtime.startup()
+    cleanup_task = asyncio.create_task(_periodic_cleanup_batch_groups())
     try:
         yield
     finally:
+        cleanup_task.cancel()
         await retrieve_advanced_runtime.shutdown()
         await retrieve_runtime.shutdown()
 
